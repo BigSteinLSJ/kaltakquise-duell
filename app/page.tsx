@@ -2,7 +2,49 @@
 
 import { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import confetti from 'canvas-confetti'; // WIR NUTZEN JETZT KONFETTI
+
+// --- KONFETTI KOMPONENTE (Ohne Installation) ---
+// Erzeugt Geldregen und Party-Icons, ohne dass man etwas installieren muss
+const MoneyRain = () => {
+  const [particles, setParticles] = useState<any[]>([]);
+
+  useEffect(() => {
+    // Erzeuge 50 Geld-Partikel
+    const newParticles = Array.from({ length: 50 }).map((_, i) => ({
+      id: i,
+      left: Math.random() * 100, // Zufällige Position X
+      delay: Math.random() * 2,  // Zufällige Verzögerung
+      duration: 2 + Math.random() * 3, // Zufälliges Tempo
+      icon: ['💸', '💰', '🎉', '🤑', '💎'][Math.floor(Math.random() * 5)] // Zufälliges Icon
+    }));
+    setParticles(newParticles);
+  }, []);
+
+  return (
+    <div className="fixed inset-0 pointer-events-none z-[9999] overflow-hidden">
+      {particles.map((p) => (
+        <div
+          key={p.id}
+          className="absolute top-[-50px] text-4xl animate-fall opacity-0"
+          style={{
+            left: `${p.left}%`,
+            animation: `fall ${p.duration}s linear ${p.delay}s infinite`
+          }}
+        >
+          {p.icon}
+        </div>
+      ))}
+      <style jsx>{`
+        @keyframes fall {
+          0% { transform: translateY(-10vh) rotate(0deg); opacity: 1; }
+          100% { transform: translateY(110vh) rotate(360deg); opacity: 0; }
+        }
+      `}</style>
+    </div>
+  );
+};
+
+// --- HAUPT APP ---
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -12,6 +54,7 @@ const supabase = createClient(
 export default function KaltakquiseDuell() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [showConfetti, setShowConfetti] = useState(false); // Neuer State für Konfetti
 
   // 10 Spieler IDs
   const playerIds = Array.from({ length: 10 }, (_, i) => i + 1);
@@ -24,14 +67,7 @@ export default function KaltakquiseDuell() {
 
       const channel = supabase.channel('duell-updates')
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'duell' }, (payload) => {
-            // Wenn sich Meetings ändern (jemand hat Termin gemacht), checken wir wer es war für Konfetti
-            const newData = payload.new;
-            const oldData = data; // Zugriff auf alten State ist hier tricky, wir machen Konfetti einfach immer beim Update wenn meeting > 0
-            
-            // Einfacherer Weg: Wir triggern Konfetti einfach lokal beim Klick, 
-            // und bei den anderen Spielern passiert es (noch) nicht, 
-            // um "Sound-Spam" zu vermeiden. Erstmal nur für den, der drückt.
-            setData(newData);
+            setData(payload.new);
         })
         .subscribe();
 
@@ -39,6 +75,14 @@ export default function KaltakquiseDuell() {
     };
     loadAndSubscribe();
   }, []);
+
+  // Timer für Konfetti (stoppt nach 4 Sekunden automatisch)
+  useEffect(() => {
+    if (showConfetti) {
+      const timer = setTimeout(() => setShowConfetti(false), 4000); 
+      return () => clearTimeout(timer);
+    }
+  }, [showConfetti]);
 
   const updateDB = async (updates: any) => {
     setData((prev: any) => ({ ...prev, ...updates }));
@@ -68,17 +112,11 @@ export default function KaltakquiseDuell() {
     });
   };
 
-  // MIT KONFETTI 🎊
   const handleTermin = (playerIdx: number) => {
     if (!data) return;
     
-    // 1. Konfetti abfeuern!
-    confetti({
-      particleCount: 150,
-      spread: 70,
-      origin: { y: 0.6 },
-      colors: ['#34d399', '#facc15', '#a855f7'] // Grün, Gold, Lila
-    });
+    // 1. Konfetti zünden (Lokal)
+    setShowConfetti(true);
 
     // 2. Datenbank Update
     updateDB({
@@ -126,7 +164,11 @@ export default function KaltakquiseDuell() {
   const currentLeaderId = getLeaderId();
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white p-4 font-sans selection:bg-yellow-500/30">
+    <main className="min-h-screen bg-slate-950 text-white p-4 font-sans selection:bg-yellow-500/30 overflow-x-hidden">
+      
+      {/* KONFETTI REGEN */}
+      {showConfetti && <MoneyRain />}
+
       <div className="max-w-[1800px] mx-auto">
         <header className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4 px-2">
           <div>
@@ -204,20 +246,32 @@ export default function KaltakquiseDuell() {
                     <button onClick={() => handleAnwahl(i)} className="col-span-1 bg-slate-800 hover:bg-slate-700 text-slate-400 font-bold py-2 rounded-lg border border-slate-700 active:scale-95 transition-all">
                         📞 <span className="text-[10px] block font-normal">Niete</span>
                     </button>
+                    
                     <button onClick={() => handleEntscheider(i)} className="col-span-1 bg-purple-900/40 hover:bg-purple-800 text-purple-300 font-bold py-2 rounded-lg border border-purple-700/50 active:scale-95 transition-all relative overflow-hidden">
                         🗣️ <span className="text-[10px] block font-normal">Entsch.</span>
                         {callsTotal > 0 && <div className="absolute top-0.5 right-0.5 text-[8px] bg-purple-950 px-1 rounded opacity-70">{durchstellQuote}%</div>}
                     </button>
+
                     <button onClick={() => handleTermin(i)} className="col-span-2 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white font-black py-3 rounded-lg shadow-lg active:scale-95 transition-all">
                         💰 TERMIN!
                     </button>
                 </div>
 
                 <div className="mt-2 grid grid-cols-3 gap-0.5 text-[9px] text-slate-500 uppercase text-center bg-black/20 rounded-md p-1">
-                    <div><div className="text-slate-400 font-bold">{callsTotal}</div><div>Calls</div></div>
-                    <div><div className="text-purple-400 font-bold">{deciders}</div><div>Ents.</div></div>
-                    <div><div className="text-emerald-400 font-bold">{termine}</div><div>Fix</div></div>
+                    <div>
+                        <div className="text-slate-400 font-bold">{callsTotal}</div>
+                        <div>Calls</div>
+                    </div>
+                    <div>
+                        <div className="text-purple-400 font-bold">{deciders}</div>
+                        <div>Ents.</div>
+                    </div>
+                    <div>
+                        <div className="text-emerald-400 font-bold">{termine}</div>
+                        <div>Fix</div>
+                    </div>
                 </div>
+
               </div>
             );
           })}
