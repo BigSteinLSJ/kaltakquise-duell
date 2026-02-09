@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import confetti from 'canvas-confetti'; // WIR NUTZEN JETZT KONFETTI
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -12,7 +13,7 @@ export default function KaltakquiseDuell() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
-  // Array für 10 Spieler [1, 2, ..., 10]
+  // 10 Spieler IDs
   const playerIds = Array.from({ length: 10 }, (_, i) => i + 1);
 
   useEffect(() => {
@@ -23,7 +24,14 @@ export default function KaltakquiseDuell() {
 
       const channel = supabase.channel('duell-updates')
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'duell' }, (payload) => {
-            setData(payload.new);
+            // Wenn sich Meetings ändern (jemand hat Termin gemacht), checken wir wer es war für Konfetti
+            const newData = payload.new;
+            const oldData = data; // Zugriff auf alten State ist hier tricky, wir machen Konfetti einfach immer beim Update wenn meeting > 0
+            
+            // Einfacherer Weg: Wir triggern Konfetti einfach lokal beim Klick, 
+            // und bei den anderen Spielern passiert es (noch) nicht, 
+            // um "Sound-Spam" zu vermeiden. Erstmal nur für den, der drückt.
+            setData(newData);
         })
         .subscribe();
 
@@ -60,8 +68,19 @@ export default function KaltakquiseDuell() {
     });
   };
 
+  // MIT KONFETTI 🎊
   const handleTermin = (playerIdx: number) => {
     if (!data) return;
+    
+    // 1. Konfetti abfeuern!
+    confetti({
+      particleCount: 150,
+      spread: 70,
+      origin: { y: 0.6 },
+      colors: ['#34d399', '#facc15', '#a855f7'] // Grün, Gold, Lila
+    });
+
+    // 2. Datenbank Update
     updateDB({
       [`p${playerIdx}_meetings`]: (data[`p${playerIdx}_meetings`] || 0) + 1,
       [`p${playerIdx}_deciders`]: (data[`p${playerIdx}_deciders`] || 0) + 1,
@@ -83,33 +102,26 @@ export default function KaltakquiseDuell() {
     }
   };
 
-  // Hilfsfunktion: Wer führt gerade?
   const getLeaderId = () => {
     if (!data) return -1;
     let maxUmsatz = -1;
     let leaderId = -1;
-
     playerIds.forEach(i => {
         const val = data[`p${i}_val`] || 0;
         const streak = data[`p${i}_streak`] || 0;
         const meetings = data[`p${i}_meetings`] || 0;
         const goal = data[`p${i}_goal`] || 1;
-        
         const wpa = goal > 0 ? val / goal : 0;
         let vorschuss = streak * wpa;
         if (vorschuss >= val) vorschuss = val - 1;
         const umsatz = (meetings * val) + vorschuss;
-
-        if (umsatz > maxUmsatz && umsatz > 0) {
-            maxUmsatz = umsatz;
-            leaderId = i;
-        }
+        if (umsatz > maxUmsatz && umsatz > 0) { maxUmsatz = umsatz; leaderId = i; }
     });
     return leaderId;
   };
 
-  if (loading) return <div className="h-screen bg-slate-950 flex items-center justify-center text-emerald-500 animate-pulse">Lade 10-Spieler Arena...</div>;
-  if (!data) return <div className="h-screen bg-slate-950 flex items-center justify-center text-red-500">Keine Daten. SQL für 10 Spieler ausgeführt?</div>;
+  if (loading) return <div className="h-screen bg-slate-950 flex items-center justify-center text-emerald-500 animate-pulse">Lade Arena...</div>;
+  if (!data) return <div className="h-screen bg-slate-950 flex items-center justify-center text-red-500">Keine Daten.</div>;
 
   const currentLeaderId = getLeaderId();
 
@@ -128,12 +140,6 @@ export default function KaltakquiseDuell() {
           </button>
         </header>
 
-        {/* GRID UPDATE:
-            PC (xl): 5 Spalten (2 Reihen für 10 Leute)
-            Laptop (lg): 3 Spalten
-            Tablet (md): 2 Spalten
-            Handy: 1 Spalte
-        */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
           {playerIds.map((i) => {
             const name = data[`p${i}_name`];
@@ -150,7 +156,6 @@ export default function KaltakquiseDuell() {
             if (vorschuss >= terminWert) vorschuss = terminWert - 1;
             const aktuellerUmsatz = (termine * terminWert) + vorschuss;
             const isProfitable = realerWertProAnwahl >= wertProAnwahlZiel;
-            
             const durchstellQuote = callsTotal > 0 ? Math.round((deciders / callsTotal) * 100) : 0;
             const isLeader = currentLeaderId === i;
 
@@ -162,14 +167,10 @@ export default function KaltakquiseDuell() {
                     : 'bg-slate-900 border border-slate-800 shadow-xl hover:border-slate-700'
                 }
               `}>
-                
                 {isLeader && (
-                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-yellow-500 text-black font-black px-3 py-0.5 rounded-full shadow-lg text-xs animate-pulse">
-                        👑 #1
-                    </div>
+                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-yellow-500 text-black font-black px-3 py-0.5 rounded-full shadow-lg text-xs animate-pulse">👑 #1</div>
                 )}
 
-                {/* Name & Settings */}
                 <div className="mb-2 bg-black/20 p-2 rounded-lg border border-white/5 space-y-1 mt-1">
                   <input
                     type="text"
@@ -180,17 +181,16 @@ export default function KaltakquiseDuell() {
                   />
                   <div className="flex gap-1 text-[10px]">
                      <div className="flex-1">
-                       <label className="text-slate-500 block">Wert</label>
+                       <label className="text-slate-500 block">Wert (Deal/Fee)</label>
                        <input type="number" value={terminWert} onChange={(e) => handleSettingChange(i, "val", Number(e.target.value))} className="bg-slate-800 text-white w-full rounded px-1 text-center font-bold"/>
                      </div>
                      <div className="flex-1">
-                       <label className="text-slate-500 block">Ziel</label>
+                       <label className="text-slate-500 block">Ziel (Calls)</label>
                        <input type="number" value={zielQuote} onChange={(e) => handleSettingChange(i, "goal", Number(e.target.value))} className="bg-slate-800 text-purple-400 w-full rounded px-1 text-center font-bold"/>
                      </div>
                   </div>
                 </div>
 
-                {/* Score */}
                 <div className="flex-grow flex flex-col items-center justify-center mb-4">
                   <div className={`text-4xl font-black tabular-nums tracking-tight ${isLeader ? 'text-yellow-400' : 'text-white'}`}>
                     {Math.floor(aktuellerUmsatz)}<span className="text-sm font-normal text-slate-600">€</span>
@@ -200,38 +200,24 @@ export default function KaltakquiseDuell() {
                   </div>
                 </div>
 
-                {/* Buttons */}
                 <div className="grid grid-cols-2 gap-1.5 mt-auto">
                     <button onClick={() => handleAnwahl(i)} className="col-span-1 bg-slate-800 hover:bg-slate-700 text-slate-400 font-bold py-2 rounded-lg border border-slate-700 active:scale-95 transition-all">
                         📞 <span className="text-[10px] block font-normal">Niete</span>
                     </button>
-                    
                     <button onClick={() => handleEntscheider(i)} className="col-span-1 bg-purple-900/40 hover:bg-purple-800 text-purple-300 font-bold py-2 rounded-lg border border-purple-700/50 active:scale-95 transition-all relative overflow-hidden">
                         🗣️ <span className="text-[10px] block font-normal">Entsch.</span>
                         {callsTotal > 0 && <div className="absolute top-0.5 right-0.5 text-[8px] bg-purple-950 px-1 rounded opacity-70">{durchstellQuote}%</div>}
                     </button>
-
                     <button onClick={() => handleTermin(i)} className="col-span-2 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white font-black py-3 rounded-lg shadow-lg active:scale-95 transition-all">
                         💰 TERMIN!
                     </button>
                 </div>
 
-                {/* Footer Stats */}
                 <div className="mt-2 grid grid-cols-3 gap-0.5 text-[9px] text-slate-500 uppercase text-center bg-black/20 rounded-md p-1">
-                    <div>
-                        <div className="text-slate-400 font-bold">{callsTotal}</div>
-                        <div>Calls</div>
-                    </div>
-                    <div>
-                        <div className="text-purple-400 font-bold">{deciders}</div>
-                        <div>Ents.</div>
-                    </div>
-                    <div>
-                        <div className="text-emerald-400 font-bold">{termine}</div>
-                        <div>Fix</div>
-                    </div>
+                    <div><div className="text-slate-400 font-bold">{callsTotal}</div><div>Calls</div></div>
+                    <div><div className="text-purple-400 font-bold">{deciders}</div><div>Ents.</div></div>
+                    <div><div className="text-emerald-400 font-bold">{termine}</div><div>Fix</div></div>
                 </div>
-
               </div>
             );
           })}
