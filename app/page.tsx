@@ -12,6 +12,9 @@ export default function KaltakquiseDuell() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
+  // Array für 10 Spieler [1, 2, ..., 10]
+  const playerIds = Array.from({ length: 10 }, (_, i) => i + 1);
+
   useEffect(() => {
     const loadAndSubscribe = async () => {
       const { data: initialData } = await supabase.from('duell').select('*').single();
@@ -68,9 +71,9 @@ export default function KaltakquiseDuell() {
   };
 
   const handleReset = async () => {
-    if (confirm("Alles auf 0 setzen?")) {
+    if (confirm("Wirklich ALLES für alle 10 Spieler zurücksetzen?")) {
       const resetObj: any = {};
-      [1, 2, 3, 4].forEach(i => {
+      playerIds.forEach(i => {
         resetObj[`p${i}_calls`] = 0;
         resetObj[`p${i}_deciders`] = 0;
         resetObj[`p${i}_streak`] = 0;
@@ -86,13 +89,12 @@ export default function KaltakquiseDuell() {
     let maxUmsatz = -1;
     let leaderId = -1;
 
-    [1, 2, 3, 4].forEach(i => {
+    playerIds.forEach(i => {
         const val = data[`p${i}_val`] || 0;
         const streak = data[`p${i}_streak`] || 0;
         const meetings = data[`p${i}_meetings`] || 0;
         const goal = data[`p${i}_goal`] || 1;
         
-        // Umsatz Logik nachbauen
         const wpa = goal > 0 ? val / goal : 0;
         let vorschuss = streak * wpa;
         if (vorschuss >= val) vorschuss = val - 1;
@@ -106,28 +108,34 @@ export default function KaltakquiseDuell() {
     return leaderId;
   };
 
-  if (loading) return <div className="h-screen bg-slate-950 flex items-center justify-center text-emerald-500 animate-pulse">Lade Arena...</div>;
-  if (!data) return <div className="h-screen bg-slate-950 flex items-center justify-center text-red-500">Keine Daten.</div>;
+  if (loading) return <div className="h-screen bg-slate-950 flex items-center justify-center text-emerald-500 animate-pulse">Lade 10-Spieler Arena...</div>;
+  if (!data) return <div className="h-screen bg-slate-950 flex items-center justify-center text-red-500">Keine Daten. SQL für 10 Spieler ausgeführt?</div>;
 
   const currentLeaderId = getLeaderId();
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white p-4 md:p-8 font-sans selection:bg-yellow-500/30">
-      <div className="max-w-screen-2xl mx-auto">
-        <header className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
+    <main className="min-h-screen bg-slate-950 text-white p-4 font-sans selection:bg-yellow-500/30">
+      <div className="max-w-[1800px] mx-auto">
+        <header className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4 px-2">
           <div>
             <h1 className="text-3xl md:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 via-orange-500 to-red-500 tracking-tighter">
               KALTAKQUISE DUELL
             </h1>
-            <p className="text-slate-400 text-sm">Wer holt die Krone? 👑</p>
+            <p className="text-slate-400 text-sm">Top 10 Leaderboard 👑</p>
           </div>
           <button onClick={handleReset} className="text-xs text-slate-600 hover:text-red-400 border border-slate-800 hover:border-red-900 px-3 py-1 rounded">
             Reset All
           </button>
         </header>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
-          {[1, 2, 3, 4].map((i) => {
+        {/* GRID UPDATE:
+            PC (xl): 5 Spalten (2 Reihen für 10 Leute)
+            Laptop (lg): 3 Spalten
+            Tablet (md): 2 Spalten
+            Handy: 1 Spalte
+        */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+          {playerIds.map((i) => {
             const name = data[`p${i}_name`];
             const terminWert = data[`p${i}_val`] || 0;
             const zielQuote = data[`p${i}_goal`] || 1;
@@ -143,94 +151,84 @@ export default function KaltakquiseDuell() {
             const aktuellerUmsatz = (termine * terminWert) + vorschuss;
             const isProfitable = realerWertProAnwahl >= wertProAnwahlZiel;
             
-            // Statistik
             const durchstellQuote = callsTotal > 0 ? Math.round((deciders / callsTotal) * 100) : 0;
-
-            // IST DAS DER LEADER?
             const isLeader = currentLeaderId === i;
 
             return (
               <div key={i} className={`
-                relative rounded-3xl p-4 flex flex-col group transition-all duration-500
+                relative rounded-2xl p-3 flex flex-col group transition-all duration-500
                 ${isLeader 
-                    ? 'bg-slate-900 border-2 border-yellow-500 shadow-[0_0_30px_rgba(234,179,8,0.3)] scale-[1.02] z-10' 
-                    : 'bg-slate-900 border border-slate-800 shadow-2xl hover:border-slate-700'
+                    ? 'bg-slate-900 border-2 border-yellow-500 shadow-[0_0_20px_rgba(234,179,8,0.2)] z-10' 
+                    : 'bg-slate-900 border border-slate-800 shadow-xl hover:border-slate-700'
                 }
               `}>
                 
-                {/* KRONEN BADGE */}
                 {isLeader && (
-                    <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-yellow-500 text-black font-black px-4 py-1 rounded-full shadow-lg text-sm animate-bounce">
-                        👑 FÜHRUNG
+                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-yellow-500 text-black font-black px-3 py-0.5 rounded-full shadow-lg text-xs animate-pulse">
+                        👑 #1
                     </div>
                 )}
 
-                {/* Header Input */}
-                <div className="mb-4 bg-black/20 p-3 rounded-xl border border-white/5 space-y-2 mt-2">
+                {/* Name & Settings */}
+                <div className="mb-2 bg-black/20 p-2 rounded-lg border border-white/5 space-y-1 mt-1">
                   <input
                     type="text"
                     value={name}
                     onChange={(e) => handleSettingChange(i, "name", e.target.value)}
-                    className={`w-full bg-transparent text-xl font-bold text-center border-b outline-none pb-1 ${isLeader ? 'text-yellow-400 border-yellow-500/50' : 'text-white border-white/10 focus:border-purple-500'}`}
+                    className={`w-full bg-transparent text-lg font-bold text-center border-b outline-none pb-1 ${isLeader ? 'text-yellow-400 border-yellow-500/50' : 'text-white border-white/10 focus:border-purple-500'}`}
                     placeholder={`Spieler ${i}`}
                   />
-                  <div className="flex gap-2 text-xs">
+                  <div className="flex gap-1 text-[10px]">
                      <div className="flex-1">
-                       <label className="text-slate-500 block">Wert €</label>
-                       <input type="number" value={terminWert} onChange={(e) => handleSettingChange(i, "val", Number(e.target.value))} className="bg-slate-800 text-white w-full rounded px-2 py-1 text-center font-bold"/>
+                       <label className="text-slate-500 block">Wert</label>
+                       <input type="number" value={terminWert} onChange={(e) => handleSettingChange(i, "val", Number(e.target.value))} className="bg-slate-800 text-white w-full rounded px-1 text-center font-bold"/>
                      </div>
                      <div className="flex-1">
-                       <label className="text-slate-500 block">Wette</label>
-                       <input type="number" value={zielQuote} onChange={(e) => handleSettingChange(i, "goal", Number(e.target.value))} className="bg-slate-800 text-purple-400 w-full rounded px-2 py-1 text-center font-bold"/>
+                       <label className="text-slate-500 block">Ziel</label>
+                       <input type="number" value={zielQuote} onChange={(e) => handleSettingChange(i, "goal", Number(e.target.value))} className="bg-slate-800 text-purple-400 w-full rounded px-1 text-center font-bold"/>
                      </div>
                   </div>
                 </div>
 
                 {/* Score */}
-                <div className="flex-grow flex flex-col items-center justify-center mb-6">
-                  <div className="text-slate-500 text-[10px] uppercase tracking-[0.2em] mb-1">Umsatz</div>
-                  <div className={`text-5xl font-black tabular-nums tracking-tight drop-shadow-2xl ${isLeader ? 'text-yellow-400' : 'text-white'}`}>
-                    {Math.floor(aktuellerUmsatz)} <span className="text-lg text-slate-600 font-normal">€</span>
+                <div className="flex-grow flex flex-col items-center justify-center mb-4">
+                  <div className={`text-4xl font-black tabular-nums tracking-tight ${isLeader ? 'text-yellow-400' : 'text-white'}`}>
+                    {Math.floor(aktuellerUmsatz)}<span className="text-sm font-normal text-slate-600">€</span>
                   </div>
-                  <div className={`mt-2 text-xs font-mono px-2 py-0.5 rounded border ${isProfitable && termine > 0 ? 'text-green-400 border-green-900 bg-green-900/20' : 'text-slate-500 border-slate-800'}`}>
+                  <div className={`text-[10px] font-mono px-1.5 py-0.5 rounded border mt-1 ${isProfitable && termine > 0 ? 'text-green-400 border-green-900 bg-green-900/20' : 'text-slate-500 border-slate-800'}`}>
                     Real: {realerWertProAnwahl.toFixed(2)}€ / Call
                   </div>
                 </div>
 
-                {/* Buttons Grid */}
-                <div className="grid grid-cols-2 gap-2 mt-auto">
-                    <button onClick={() => handleAnwahl(i)} className="col-span-1 bg-slate-800 hover:bg-slate-700 text-slate-400 font-bold py-3 rounded-xl border border-slate-700 active:scale-95 transition-all">
-                        📞 <span className="text-xs block font-normal">Niete</span>
+                {/* Buttons */}
+                <div className="grid grid-cols-2 gap-1.5 mt-auto">
+                    <button onClick={() => handleAnwahl(i)} className="col-span-1 bg-slate-800 hover:bg-slate-700 text-slate-400 font-bold py-2 rounded-lg border border-slate-700 active:scale-95 transition-all">
+                        📞 <span className="text-[10px] block font-normal">Niete</span>
                     </button>
                     
-                    <button onClick={() => handleEntscheider(i)} className="col-span-1 bg-purple-900/40 hover:bg-purple-800 text-purple-300 font-bold py-3 rounded-xl border border-purple-700/50 active:scale-95 transition-all relative overflow-hidden">
-                        🗣️ <span className="text-xs block font-normal">Entscheider</span>
-                        {/* Quote Badge */}
-                        {callsTotal > 0 && (
-                            <div className="absolute top-1 right-1 text-[9px] bg-purple-950 px-1 rounded text-purple-200 opacity-60">
-                                {durchstellQuote}%
-                            </div>
-                        )}
+                    <button onClick={() => handleEntscheider(i)} className="col-span-1 bg-purple-900/40 hover:bg-purple-800 text-purple-300 font-bold py-2 rounded-lg border border-purple-700/50 active:scale-95 transition-all relative overflow-hidden">
+                        🗣️ <span className="text-[10px] block font-normal">Entsch.</span>
+                        {callsTotal > 0 && <div className="absolute top-0.5 right-0.5 text-[8px] bg-purple-950 px-1 rounded opacity-70">{durchstellQuote}%</div>}
                     </button>
 
-                    <button onClick={() => handleTermin(i)} className="col-span-2 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white font-black py-4 rounded-xl shadow-lg shadow-emerald-900/20 active:scale-95 transition-all mt-1">
+                    <button onClick={() => handleTermin(i)} className="col-span-2 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white font-black py-3 rounded-lg shadow-lg active:scale-95 transition-all">
                         💰 TERMIN!
                     </button>
                 </div>
 
-                {/* Stats Footer */}
-                <div className="mt-4 grid grid-cols-3 gap-1 text-[10px] text-slate-500 uppercase text-center bg-black/20 rounded-lg p-2">
+                {/* Footer Stats */}
+                <div className="mt-2 grid grid-cols-3 gap-0.5 text-[9px] text-slate-500 uppercase text-center bg-black/20 rounded-md p-1">
                     <div>
-                        <div className="text-slate-400 font-bold text-sm">{callsTotal}</div>
-                        <div>Anwahlen</div>
+                        <div className="text-slate-400 font-bold">{callsTotal}</div>
+                        <div>Calls</div>
                     </div>
                     <div>
-                        <div className="text-purple-400 font-bold text-sm">{deciders}</div>
-                        <div className="text-[9px] opacity-50">{durchstellQuote}% Quote</div>
+                        <div className="text-purple-400 font-bold">{deciders}</div>
+                        <div>Ents.</div>
                     </div>
                     <div>
-                        <div className="text-emerald-400 font-bold text-sm">{termine}</div>
-                        <div>Termine</div>
+                        <div className="text-emerald-400 font-bold">{termine}</div>
+                        <div>Fix</div>
                     </div>
                 </div>
 
