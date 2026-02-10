@@ -67,7 +67,9 @@ export default function KaltakquiseDuell() {
   const [godModeData, setGodModeData] = useState<{name: string, val: number} | null>(null);
   const [bossTarget, setBossTarget] = useState(10000);
   
-  const playerIds = Array.from({ length: 10 }, (_, i) => i + 1);
+  // HIER GEÄNDERT: NUR NOCH 6 SPIELER
+  const playerIds = Array.from({ length: 6 }, (_, i) => i + 1);
+  
   const randomEmojis = ['🦁', '🐺', '🦈', '🦖', '🦅', '🦍', '🤡', '🤖', '👽', '💀', '🔥', '🚀', '🐌', '🥚', '👑', '💸', '🧠'];
 
   useEffect(() => {
@@ -76,7 +78,7 @@ export default function KaltakquiseDuell() {
       if (initialData) setData(initialData);
       setLoading(false);
 
-      const channel = supabase.channel('duell-v9')
+      const channel = supabase.channel('duell-v10')
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'duell' }, (payload) => {
             setData(payload.new);
         })
@@ -191,7 +193,7 @@ export default function KaltakquiseDuell() {
       {godModeData && <GodModeOverlay winnerName={godModeData.name} value={godModeData.val} />}
       <NewsTicker text={tickerText} />
 
-      <div className="max-w-[2200px] mx-auto">
+      <div className="max-w-[1800px] mx-auto">
         
         {/* HEADER */}
         <div className="mb-8 sticky top-0 bg-slate-950/95 backdrop-blur z-40 py-4 border-b border-white/10 shadow-2xl px-4">
@@ -224,8 +226,8 @@ export default function KaltakquiseDuell() {
             </div>
         </div>
 
-        {/* GRID */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 mt-6">
+        {/* GRID: HIER JETZT 3-SPALTIG STATT 5-SPALTIG */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mt-6">
           {playerIds.map((i) => {
             const name = data[`p${i}_name`];
             const emoji = data[`p${i}_emoji`] || '👤';
@@ -242,9 +244,7 @@ export default function KaltakquiseDuell() {
             const deciderQuote = calls > 0 ? (deciders / calls) * 100 : 0;
             const terminQuote = deciders > 0 ? (meetings / deciders) * 100 : 0;
 
-            // --- ORACLE LOGIC (Die Motivation) ---
-            // Berechne Schnitt: Calls pro Termin
-            // Falls 0 Termine, nehme Default von 50 als Ziel
+            // --- ORACLE LOGIC ---
             const avgCallsNeeded = meetings > 0 ? Math.ceil(calls / meetings) : 50;
             const callsSinceLastHit = streak;
             const callsLeftPrediction = avgCallsNeeded - callsSinceLastHit;
@@ -298,47 +298,47 @@ export default function KaltakquiseDuell() {
                   
                   {/* EMOJI & NAME */}
                   <div className="flex items-center justify-center gap-2 mb-2">
-                     <button onClick={() => cycleEmoji(i)} className="text-4xl hover:scale-125 transition-transform">{emoji}</button>
-                     <input type="text" value={name} onChange={(e) => handleSettingChange(i, "name", e.target.value)} className={`bg-transparent text-2xl font-black uppercase border-b-2 border-transparent focus:border-white/20 focus:outline-none w-full text-left ${isLeader ? 'text-yellow-400' : 'text-slate-100'}`} placeholder={`PLAYER ${i}`} />
+                     <button onClick={() => cycleEmoji(i)} className="text-5xl hover:scale-125 transition-transform">{emoji}</button>
+                     <input type="text" value={name} onChange={(e) => handleSettingChange(i, "name", e.target.value)} className={`bg-transparent text-3xl font-black uppercase border-b-2 border-transparent focus:border-white/20 focus:outline-none w-full text-left ${isLeader ? 'text-yellow-400' : 'text-slate-100'}`} placeholder={`PLAYER ${i}`} />
                   </div>
 
                   {/* TRASH TALK STATUS */}
-                  <input type="text" value={status} onChange={(e) => handleSettingChange(i, "status", e.target.value)} className="w-full bg-slate-950/50 text-slate-400 text-xs text-center border-none rounded py-1 px-2 focus:ring-1 focus:ring-yellow-500 mb-3 italic" placeholder='"Status..."' />
+                  <input type="text" value={status} onChange={(e) => handleSettingChange(i, "status", e.target.value)} className="w-full bg-slate-950/50 text-slate-400 text-sm text-center border-none rounded py-1 px-2 focus:ring-1 focus:ring-yellow-500 mb-3 italic" placeholder='"Status..."' />
                   
                   {/* ORACLE MOTIVATION BAR */}
                   <div className="mb-4 bg-slate-950 p-2 rounded border border-white/5">
-                      <div className={`text-[9px] font-black uppercase tracking-widest mb-1 text-left ${oracleColor}`}>{oracleText}</div>
-                      <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+                      <div className={`text-[10px] font-black uppercase tracking-widest mb-1 text-left ${oracleColor}`}>{oracleText}</div>
+                      <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden">
                           <div className={`h-full transition-all duration-500 ${barColor}`} style={{ width: `${progressToNextHit}%` }}></div>
                       </div>
                   </div>
 
                   {/* SETTINGS */}
-                  <div className="flex justify-center gap-6 mt-1 text-xs font-bold text-slate-400 bg-slate-800/50 py-2 rounded-lg mx-1">
-                       <div className="flex flex-col items-center"><span className="text-[9px] uppercase tracking-wider mb-1">€ / Termin</span><input type="number" value={terminWert} onChange={(e) => handleSettingChange(i, "val", Number(e.target.value))} className="bg-transparent w-16 text-center border-b border-white/20 focus:border-yellow-500 outline-none text-white"/></div>
-                       <div className="flex flex-col items-center"><span className="text-[9px] uppercase tracking-wider mb-1">Call Ziel</span><input type="number" value={goal} onChange={(e) => handleSettingChange(i, "goal", Number(e.target.value))} className="bg-transparent w-12 text-center text-white border-b border-white/20 focus:border-yellow-500 outline-none"/></div>
+                  <div className="flex justify-center gap-6 mt-2 text-xs font-bold text-slate-400 bg-slate-800/50 py-2 rounded-lg mx-1">
+                       <div className="flex flex-col items-center"><span className="text-[9px] uppercase tracking-wider mb-1">€ / Termin</span><input type="number" value={terminWert} onChange={(e) => handleSettingChange(i, "val", Number(e.target.value))} className="bg-transparent w-20 text-center border-b border-white/20 focus:border-yellow-500 outline-none text-white text-lg"/></div>
+                       <div className="flex flex-col items-center"><span className="text-[9px] uppercase tracking-wider mb-1">Call Ziel</span><input type="number" value={goal} onChange={(e) => handleSettingChange(i, "goal", Number(e.target.value))} className="bg-transparent w-16 text-center text-white border-b border-white/20 focus:border-yellow-500 outline-none text-lg"/></div>
                   </div>
                 </div>
 
                 {/* UMSATZ */}
-                <div className="flex-grow flex flex-col items-center justify-center py-2 relative">
-                  <div className={`text-6xl lg:text-7xl font-black tracking-tighter leading-none transition-all ${isLeader ? 'text-white drop-shadow-[0_0_20px_rgba(255,255,255,0.4)] scale-110' : 'text-slate-500'}`}>
-                    {Math.floor(umsatz)}<span className="text-2xl text-slate-700 font-medium ml-1">€</span>
+                <div className="flex-grow flex flex-col items-center justify-center py-4 relative">
+                  <div className={`text-7xl lg:text-8xl font-black tracking-tighter leading-none transition-all ${isLeader ? 'text-white drop-shadow-[0_0_20px_rgba(255,255,255,0.4)] scale-110' : 'text-slate-500'}`}>
+                    {Math.floor(umsatz)}<span className="text-3xl text-slate-700 font-medium ml-1">€</span>
                   </div>
                 </div>
 
                 {/* KPI GRID */}
-                <div className="grid grid-cols-3 gap-px bg-slate-800 border-y border-white/10 text-center mb-4">
-                    <div className="py-3 px-1"><div className="text-[9px] text-slate-500 uppercase tracking-wider font-bold">Real/Call</div><div className={`text-sm font-bold font-mono ${realValuePerCall > (goal > 0 ? terminWert/goal : 0) ? 'text-green-400' : 'text-slate-300'}`}>{realValuePerCall.toFixed(2)}€</div></div>
-                    <div className="py-3 px-1 border-l border-white/10"><div className="text-[9px] text-slate-500 uppercase tracking-wider font-bold">D-Quote</div><div className="text-sm font-bold font-mono text-purple-300">{deciderQuote.toFixed(0)}%</div></div>
-                    <div className="py-3 px-1 border-l border-white/10"><div className="text-[9px] text-slate-500 uppercase tracking-wider font-bold">T-Quote</div><div className={`text-sm font-bold font-mono ${terminQuote > 10 ? 'text-emerald-400' : 'text-slate-400'}`}>{terminQuote.toFixed(1)}%</div></div>
+                <div className="grid grid-cols-3 gap-px bg-slate-800 border-y border-white/10 text-center mb-6">
+                    <div className="py-4 px-1"><div className="text-[10px] text-slate-500 uppercase tracking-wider font-bold">Real/Call</div><div className={`text-base font-bold font-mono ${realValuePerCall > (goal > 0 ? terminWert/goal : 0) ? 'text-green-400' : 'text-slate-300'}`}>{realValuePerCall.toFixed(2)}€</div></div>
+                    <div className="py-4 px-1 border-l border-white/10"><div className="text-[10px] text-slate-500 uppercase tracking-wider font-bold">D-Quote</div><div className="text-base font-bold font-mono text-purple-300">{deciderQuote.toFixed(0)}%</div></div>
+                    <div className="py-4 px-1 border-l border-white/10"><div className="text-[10px] text-slate-500 uppercase tracking-wider font-bold">T-Quote</div><div className={`text-base font-bold font-mono ${terminQuote > 10 ? 'text-emerald-400' : 'text-slate-400'}`}>{terminQuote.toFixed(1)}%</div></div>
                 </div>
 
                 {/* BUTTONS */}
-                <div className="grid grid-cols-4 gap-2 p-3 mt-auto mb-2">
-                    <button onClick={() => handleAnwahl(i)} className="col-span-1 bg-slate-800 hover:bg-slate-700 text-slate-500 hover:text-white font-bold py-4 rounded-lg transition-all flex flex-col items-center justify-center group border border-white/5 active:scale-95"><span className="text-xl mb-1 group-hover:scale-110 transition-transform">❌</span><span className="text-[10px] font-mono">{calls}</span></button>
-                    <button onClick={() => handleEntscheider(i)} className="col-span-1 bg-slate-800 hover:bg-purple-900/20 text-purple-400 hover:text-purple-300 font-bold py-4 rounded-lg transition-all flex flex-col items-center justify-center group border border-white/5 active:scale-95"><span className="text-xl mb-1 group-hover:scale-110 transition-transform">🗣️</span><span className="text-[10px] font-mono">{deciders}</span></button>
-                    <button onClick={() => handleTermin(i)} className="col-span-2 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white font-black italic tracking-wider py-4 rounded-lg shadow-lg active:scale-95 transition-all text-lg z-10 border border-emerald-500/30 group relative overflow-hidden"><div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div><span className="relative z-10">TERMIN</span><span className="block text-[9px] font-normal not-italic opacity-80 text-emerald-100 font-mono mt-0.5 relative z-10">{meetings} BKD</span></button>
+                <div className="grid grid-cols-4 gap-3 p-4 mt-auto mb-2">
+                    <button onClick={() => handleAnwahl(i)} className="col-span-1 bg-slate-800 hover:bg-slate-700 text-slate-500 hover:text-white font-bold py-5 rounded-lg transition-all flex flex-col items-center justify-center group border border-white/5 active:scale-95"><span className="text-2xl mb-1 group-hover:scale-110 transition-transform">❌</span><span className="text-xs font-mono">{calls}</span></button>
+                    <button onClick={() => handleEntscheider(i)} className="col-span-1 bg-slate-800 hover:bg-purple-900/20 text-purple-400 hover:text-purple-300 font-bold py-5 rounded-lg transition-all flex flex-col items-center justify-center group border border-white/5 active:scale-95"><span className="text-2xl mb-1 group-hover:scale-110 transition-transform">🗣️</span><span className="text-xs font-mono">{deciders}</span></button>
+                    <button onClick={() => handleTermin(i)} className="col-span-2 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white font-black italic tracking-wider py-5 rounded-lg shadow-lg active:scale-95 transition-all text-xl z-10 border border-emerald-500/30 group relative overflow-hidden"><div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div><span className="relative z-10">TERMIN</span><span className="block text-[10px] font-normal not-italic opacity-80 text-emerald-100 font-mono mt-0.5 relative z-10">{meetings} BKD</span></button>
                 </div>
               </div>
             );
