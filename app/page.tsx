@@ -67,9 +67,8 @@ export default function KaltakquiseDuell() {
   const [godModeData, setGodModeData] = useState<{name: string, val: number} | null>(null);
   const [bossTarget, setBossTarget] = useState(10000);
   
-  // HIER GEÄNDERT: NUR NOCH 6 SPIELER
+  // 6 Spieler Setup
   const playerIds = Array.from({ length: 6 }, (_, i) => i + 1);
-  
   const randomEmojis = ['🦁', '🐺', '🦈', '🦖', '🦅', '🦍', '🤡', '🤖', '👽', '💀', '🔥', '🚀', '🐌', '🥚', '👑', '💸', '🧠'];
 
   useEffect(() => {
@@ -78,7 +77,7 @@ export default function KaltakquiseDuell() {
       if (initialData) setData(initialData);
       setLoading(false);
 
-      const channel = supabase.channel('duell-v10')
+      const channel = supabase.channel('duell-v11')
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'duell' }, (payload) => {
             setData(payload.new);
         })
@@ -155,6 +154,7 @@ export default function KaltakquiseDuell() {
     }
   };
 
+  // Helper Score Berechnung
   const calculateScore = (i: number) => {
       if (!data) return 0;
       const val = data[`p${i}_val`] || 0;
@@ -167,25 +167,26 @@ export default function KaltakquiseDuell() {
       return (meetings * val) + vorschuss;
   };
 
-  const getLeaderId = () => {
-    if (!data) return -1;
-    let maxUmsatz = -1;
-    let leaderId = -1;
-    playerIds.forEach(i => {
-        const umsatz = calculateScore(i);
-        if (umsatz > maxUmsatz && umsatz > 0) { maxUmsatz = umsatz; leaderId = i; }
-    });
-    return leaderId;
+  // --- NEMESIS LOGIC: Rangliste berechnen ---
+  // Wir erstellen ein Array aller Spieler mit Scores, sortieren es und finden dann den Nachbarn
+  const getAllPlayerScores = () => {
+      return playerIds.map(id => ({
+          id,
+          name: data ? (data[`p${id}_name`] || `PLAYER ${id}`) : `P${id}`,
+          score: calculateScore(id)
+      })).sort((a, b) => b.score - a.score); // Absteigend sortiert
   };
+
+  const sortedPlayers = data ? getAllPlayerScores() : [];
+  const leaderId = sortedPlayers.length > 0 ? sortedPlayers[0].id : -1;
 
   if (loading || !data) return <div className="h-screen bg-black flex items-center justify-center text-yellow-500 animate-pulse font-mono text-2xl">LADEN...</div>;
 
-  const currentLeaderId = getLeaderId();
   let teamTotal = 0;
   playerIds.forEach(i => { teamTotal += calculateScore(i); });
   const bossProgress = Math.min((teamTotal / bossTarget) * 100, 100);
-  const leaderName = currentLeaderId > -1 ? (data[`p${currentLeaderId}_name`] || `PLAYER ${currentLeaderId}`) : "NIEMAND";
-  const tickerText = `+++ 🚀 MARKET LIVE: TEAM TOTAL: ${Math.floor(teamTotal)}€ +++ 👑 LEADER: ${leaderName} +++ 🎯 TAGESZIEL: ${bossTarget}€ +++ 🐺 "THE WOLF" MODE ACTIVE +++ HUNT OR BE HUNTED +++ `;
+  const leaderName = sortedPlayers.length > 0 ? sortedPlayers[0].name : "NIEMAND";
+  const tickerText = `+++ 🚀 MARKET LIVE: TEAM TOTAL: ${Math.floor(teamTotal)}€ +++ 👑 LEADER: ${leaderName} +++ 🎯 TAGESZIEL: ${bossTarget}€ +++ ⚔️ NEMESIS MODE ACTIVE: FIND YOUR RIVAL +++ `;
 
   return (
     <main className="min-h-screen bg-slate-950 text-white p-4 font-sans overflow-x-hidden pb-24">
@@ -226,7 +227,7 @@ export default function KaltakquiseDuell() {
             </div>
         </div>
 
-        {/* GRID: HIER JETZT 3-SPALTIG STATT 5-SPALTIG */}
+        {/* GRID */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mt-6">
           {playerIds.map((i) => {
             const name = data[`p${i}_name`];
@@ -244,7 +245,26 @@ export default function KaltakquiseDuell() {
             const deciderQuote = calls > 0 ? (deciders / calls) * 100 : 0;
             const terminQuote = deciders > 0 ? (meetings / deciders) * 100 : 0;
 
-            // --- ORACLE LOGIC ---
+            // --- NEMESIS BERECHNUNG ---
+            const myRankIndex = sortedPlayers.findIndex(p => p.id === i);
+            let nemesisText = "";
+            let nemesisClass = "text-slate-500";
+            
+            if (myRankIndex === 0) {
+                // Leader
+                const gap = sortedPlayers.length > 1 ? (umsatz - sortedPlayers[1].score) : 0;
+                nemesisText = `🛡️ VERTEIDIGT FÜHRUNG (+${Math.floor(gap)}€)`;
+                nemesisClass = "text-green-400 bg-green-900/30 border border-green-500/30";
+            } else if (myRankIndex > 0) {
+                // Jäger
+                const rival = sortedPlayers[myRankIndex - 1];
+                const gap = rival.score - umsatz;
+                nemesisText = `🎯 JAGT: ${rival.name} (-${Math.floor(gap)}€)`;
+                nemesisClass = "text-red-400 bg-red-900/30 border border-red-500/30 animate-pulse";
+            }
+
+
+            // Oracle Logic
             const avgCallsNeeded = meetings > 0 ? Math.ceil(calls / meetings) : 50;
             const callsSinceLastHit = streak;
             const callsLeftPrediction = avgCallsNeeded - callsSinceLastHit;
@@ -285,7 +305,7 @@ export default function KaltakquiseDuell() {
             }
 
             const isFrozen = calls === 0;
-            const isLeader = currentLeaderId === i;
+            const isLeader = leaderId === i;
 
             return (
               <div key={i} className={`relative rounded-2xl flex flex-col transition-all duration-300 overflow-hidden min-h-[500px] ${isLeader ? 'bg-slate-900 ring-4 ring-yellow-400 shadow-[0_0_50px_rgba(234,179,8,0.3)] z-10 scale-[1.03]' : cardClasses} ${shadowClasses} ${isFrozen ? 'opacity-50 grayscale contrast-125' : 'opacity-100'} `}>
@@ -296,6 +316,11 @@ export default function KaltakquiseDuell() {
                 {/* HEADER BEREICH */}
                 <div className="mt-6 mb-2 px-4 text-center">
                   
+                  {/* NEMESIS BADGE (NEU) */}
+                  <div className={`mb-4 inline-block px-3 py-1 rounded text-[10px] font-black uppercase tracking-widest ${nemesisClass}`}>
+                      {nemesisText}
+                  </div>
+
                   {/* EMOJI & NAME */}
                   <div className="flex items-center justify-center gap-2 mb-2">
                      <button onClick={() => cycleEmoji(i)} className="text-5xl hover:scale-125 transition-transform">{emoji}</button>
