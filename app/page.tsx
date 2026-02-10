@@ -67,9 +67,12 @@ export default function KaltakquiseDuell() {
   const [godModeData, setGodModeData] = useState<{name: string, val: number} | null>(null);
   const [bossTarget, setBossTarget] = useState(10000);
   
-  // Timer State
-  const [timeLeft, setTimeLeft] = useState<string>("00:00:00");
+  // Timer State Lokal
+  const [timeLeft, setTimeLeft] = useState<string>("READY");
   const [isUrgent, setIsUrgent] = useState(false);
+  const [customDuration, setCustomDuration] = useState<number>(60); // Default 60 min
+  const [isPaused, setIsPaused] = useState(false);
+  const [endTimeDisplay, setEndTimeDisplay] = useState<string>("");
 
   const playerIds = Array.from({ length: 6 }, (_, i) => i + 1);
   const randomEmojis = ['🦁', '🐺', '🦈', '🦖', '🦅', '🦍', '🤡', '🤖', '👽', '💀', '🔥', '🚀', '🐌', '🥚', '👑', '💸', '🧠'];
@@ -80,7 +83,7 @@ export default function KaltakquiseDuell() {
       if (initialData) setData(initialData);
       setLoading(false);
 
-      const channel = supabase.channel('duell-v12')
+      const channel = supabase.channel('duell-v13')
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'duell' }, (payload) => {
             setData(payload.new);
         })
@@ -90,18 +93,42 @@ export default function KaltakquiseDuell() {
     loadAndSubscribe();
   }, []);
 
-  // Timer Logic (Doomsday Clock)
+  // --- TIMER LOGIC (COMPLEX) ---
   useEffect(() => {
       const interval = setInterval(() => {
           if (!data?.timer_end) {
-              setTimeLeft("SESSION PAUSED");
+              setTimeLeft("READY");
               setIsUrgent(false);
+              setIsPaused(false);
+              setEndTimeDisplay("");
               return;
           }
 
+          // Case 1: Timer ist pausiert
+          if (data.timer_paused_at) {
+              setIsPaused(true);
+              const end = new Date(data.timer_end).getTime();
+              const pausedAt = new Date(data.timer_paused_at).getTime();
+              const remainingWhenPaused = end - pausedAt;
+              
+              const hours = Math.floor((remainingWhenPaused % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+              const minutes = Math.floor((remainingWhenPaused % (1000 * 60 * 60)) / (1000 * 60));
+              const seconds = Math.floor((remainingWhenPaused % (1000 * 60)) / 1000);
+              
+              setTimeLeft(`PAUSED (${minutes}:${seconds < 10 ? '0' : ''}${seconds})`);
+              setEndTimeDisplay("PAUSIERT");
+              return;
+          }
+
+          // Case 2: Timer läuft
+          setIsPaused(false);
           const end = new Date(data.timer_end).getTime();
           const now = new Date().getTime();
           const distance = end - now;
+
+          // Endzeit formatieren (für Display)
+          const endDate = new Date(data.timer_end);
+          setEndTimeDisplay(`Endet: ${endDate.getHours()}:${endDate.getMinutes() < 10 ? '0' : ''}${endDate.getMinutes()}`);
 
           if (distance < 0) {
               setTimeLeft("TIME IS UP");
@@ -112,11 +139,9 @@ export default function KaltakquiseDuell() {
               const seconds = Math.floor((distance % (1000 * 60)) / 1000);
               
               setTimeLeft(`${hours > 0 ? hours + ':' : ''}${minutes < 10 ? '0' : ''}${minutes}:${seconds < 10 ? '0' : ''}${seconds}`);
-              
-              // Urgent wenn unter 5 Minuten (300000ms)
-              setIsUrgent(distance < 300000);
+              setIsUrgent(distance < 300000); // Rot unter 5 min
           }
-      }, 1000);
+      }, 500); // Schnelleres Update für smootheren Sekundenzeiger
 
       return () => clearInterval(interval);
   }, [data]);
@@ -184,20 +209,38 @@ export default function KaltakquiseDuell() {
         resetObj[`p${i}_meetings`] = 0;
         resetObj[`p${i}_status`] = '';
       });
-      // Auch Timer stoppen
       resetObj['timer_end'] = null;
+      resetObj['timer_paused_at'] = null;
       await updateDB(resetObj);
     }
   };
 
-  // --- TIMER CONTROLS ---
-  const startTimer = (minutes: number) => {
-      const endTime = new Date(new Date().getTime() + minutes * 60000).toISOString();
-      updateDB({ timer_end: endTime });
+  // --- TIMER CONTROLS (NEW) ---
+  const startTimer = () => {
+      const endTime = new Date(new Date().getTime() + customDuration * 60000).toISOString();
+      updateDB({ timer_end: endTime, timer_paused_at: null });
+  };
+
+  const pauseTimer = () => {
+      // Aktuellen Zeitpunkt als Pause-Start speichern
+      updateDB({ timer_paused_at: new Date().toISOString() });
+  };
+
+  const resumeTimer = () => {
+      if (!data?.timer_end || !data?.timer_paused_at) return;
+      
+      const end = new Date(data.timer_end).getTime();
+      const pausedAt = new Date(data.timer_paused_at).getTime();
+      const now = new Date().getTime();
+      
+      const remaining = end - pausedAt;
+      const newEnd = new Date(now + remaining).toISOString();
+      
+      updateDB({ timer_end: newEnd, timer_paused_at: null });
   };
 
   const stopTimer = () => {
-      updateDB({ timer_end: null });
+      updateDB({ timer_end: null, timer_paused_at: null });
   };
 
   // --- SCORE LOGIC ---
@@ -227,7 +270,6 @@ export default function KaltakquiseDuell() {
   const copyReport = () => {
       let report = `🏆 *SALES DUELL REPORT* 🏆\n\n`;
       let total = 0;
-      
       sortedPlayers.forEach((p, index) => {
           let medal = "";
           if (index === 0) medal = "🥇 👑";
@@ -235,13 +277,10 @@ export default function KaltakquiseDuell() {
           else if (index === 2) medal = "🥉";
           else if (p.meetings === 0) medal = "💩";
           else medal = "➖";
-
           report += `${medal} *${p.name}*: ${Math.floor(p.score)}€ (${p.meetings} Termine)\n`;
           total += p.score;
       });
-
       report += `\n🔥 *TEAM TOTAL: ${Math.floor(total)}€*\n🎯 *ZIEL: ${bossTarget}€*`;
-      
       navigator.clipboard.writeText(report);
       alert("✅ Report für WhatsApp kopiert!");
   };
@@ -265,31 +304,52 @@ export default function KaltakquiseDuell() {
         {/* HEADER & CONTROLS */}
         <div className="mb-8 sticky top-0 bg-slate-950/95 backdrop-blur z-40 py-4 border-b border-white/10 shadow-2xl px-4 flex flex-col gap-4">
             
-            {/* TOP ROW: TITLE & TIMER */}
             <div className="flex justify-between items-start">
-                 <div className="flex flex-col">
+                 <div className="flex flex-col gap-2">
                     <h1 className="text-3xl font-black italic tracking-tighter text-white">
                         SALES<span className="text-yellow-500">DUELL</span>
                     </h1>
-                    {/* TIMER CONTROLS (Hidden by default, hover to show) */}
-                    <div className="flex gap-2 mt-2 opacity-20 hover:opacity-100 transition-opacity">
-                        <button onClick={() => startTimer(60)} className="bg-slate-800 px-2 py-1 text-[10px] rounded hover:bg-slate-700">60m</button>
-                        <button onClick={() => startTimer(90)} className="bg-slate-800 px-2 py-1 text-[10px] rounded hover:bg-slate-700">90m</button>
-                        <button onClick={stopTimer} className="bg-red-900/50 text-red-400 px-2 py-1 text-[10px] rounded hover:bg-red-900">STOP</button>
+                    
+                    {/* TIMER CONTROLS - JETZT VOLLSTÄNDIG */}
+                    <div className="flex items-center gap-2 bg-slate-900 p-2 rounded-lg border border-white/10">
+                        <input 
+                            type="number" 
+                            value={customDuration} 
+                            onChange={(e) => setCustomDuration(Number(e.target.value))} 
+                            className="w-12 bg-black text-white text-center font-bold rounded border border-slate-600 focus:border-yellow-500 outline-none p-1 text-sm"
+                        />
+                        <span className="text-[10px] text-slate-400 font-bold uppercase mr-2">MIN</span>
+                        
+                        {!data?.timer_end && (
+                            <button onClick={startTimer} className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1 rounded text-xs font-bold shadow transition-all">▶ START</button>
+                        )}
+                        
+                        {data?.timer_end && !isPaused && (
+                            <button onClick={pauseTimer} className="bg-yellow-600 hover:bg-yellow-500 text-white px-3 py-1 rounded text-xs font-bold shadow transition-all">⏸ PAUSE</button>
+                        )}
+                        
+                        {isPaused && (
+                            <button onClick={resumeTimer} className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1 rounded text-xs font-bold shadow transition-all animate-pulse">▶ WEITER</button>
+                        )}
+
+                        <button onClick={stopTimer} className="bg-red-900/50 hover:bg-red-800 text-red-200 px-3 py-1 rounded text-xs font-bold transition-all border border-red-900 ml-2">⏹ STOP</button>
                     </div>
                  </div>
 
                  {/* DOOMSDAY CLOCK */}
-                 <div className={`flex flex-col items-center justify-center px-8 py-2 rounded-xl border-2 ${isUrgent ? 'bg-red-950/50 border-red-500 animate-pulse' : 'bg-slate-900 border-slate-700'}`}>
-                    <div className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 mb-1">Session Timer</div>
-                    <div className={`text-4xl font-mono font-black ${isUrgent ? 'text-red-500' : 'text-white'}`}>
+                 <div className={`flex flex-col items-center justify-center px-10 py-2 rounded-xl border-2 shadow-[0_0_30px_rgba(0,0,0,0.5)] ${isUrgent ? 'bg-red-950/80 border-red-500 animate-pulse' : 'bg-slate-900 border-slate-700'}`}>
+                    <div className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 mb-1">
+                        {isPaused ? "⚠️ TIMER PAUSIERT" : "SESSION TIMER"}
+                    </div>
+                    <div className={`text-5xl font-mono font-black tabular-nums tracking-tight ${isUrgent ? 'text-red-500' : isPaused ? 'text-yellow-500' : 'text-white'}`}>
                         {timeLeft}
                     </div>
+                    {endTimeDisplay && !isPaused && <div className="text-[10px] text-slate-500 font-mono mt-1">{endTimeDisplay}</div>}
                  </div>
 
-                 {/* RIGHT SIDE: TARGET & REPORT */}
+                 {/* RIGHT SIDE */}
                  <div className="flex flex-col items-end gap-2">
-                    <button onClick={copyReport} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-4 rounded text-xs uppercase tracking-wider shadow-lg flex items-center gap-2">
+                    <button onClick={copyReport} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-4 rounded text-xs uppercase tracking-wider shadow-lg flex items-center gap-2 transition-transform active:scale-95">
                         📋 Copy Report
                     </button>
                     <div className="flex items-center gap-2 bg-slate-900 px-3 py-1 rounded border border-white/10">
@@ -333,7 +393,6 @@ export default function KaltakquiseDuell() {
             const deciderQuote = calls > 0 ? (deciders / calls) * 100 : 0;
             const terminQuote = deciders > 0 ? (meetings / deciders) * 100 : 0;
 
-            // --- NEMESIS BERECHNUNG ---
             const myRankIndex = sortedPlayers.findIndex(p => p.id === i);
             let nemesisText = "";
             let nemesisClass = "text-slate-500";
@@ -349,7 +408,6 @@ export default function KaltakquiseDuell() {
                 nemesisClass = "text-red-400 bg-red-900/30 border border-red-500/30 animate-pulse";
             }
 
-            // Oracle
             const avgCallsNeeded = meetings > 0 ? Math.ceil(calls / meetings) : 50;
             const callsSinceLastHit = streak;
             const callsLeftPrediction = avgCallsNeeded - callsSinceLastHit;
@@ -373,7 +431,6 @@ export default function KaltakquiseDuell() {
                 barColor = "bg-blue-500";
             }
 
-            // Styles
             let cardClasses = 'bg-slate-900 border border-slate-800';
             let shadowClasses = '';
             
