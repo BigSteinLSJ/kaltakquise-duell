@@ -3,12 +3,12 @@
 import { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
-// --- 1. LOOTBOX KOMPONENTE 🎁 ---
-const LootboxModal = ({ onOpen, onClose }: any) => {
+// --- 1. LOOTBOX KOMPONENTE (Gefixed) 🎁 ---
+const LootboxModal = ({ onClaim, onClose }: any) => {
   const [stage, setStage] = useState('closed'); // closed, shaking, opening, revealed
   const [reward, setReward] = useState('');
 
-  // Die Wahrscheinlichkeiten (Gacha Logik)
+  // Die Wahrscheinlichkeiten
   const rewards = [
     { icon: '🐭', name: 'Maus', chance: 30 },
     { icon: '🦊', name: 'Fuchs', chance: 25 },
@@ -32,9 +32,8 @@ const LootboxModal = ({ onOpen, onClose }: any) => {
         setReward(selected.icon);
         setTimeout(() => {
             setStage('revealed');
-            onOpen(selected.icon);
         }, 500);
-    }, 1500);
+    }, 1000);
   };
 
   return (
@@ -53,10 +52,18 @@ const LootboxModal = ({ onOpen, onClose }: any) => {
                 <h2 className="text-3xl font-black text-yellow-500 uppercase tracking-widest">NEW BADGE!</h2>
             </div>
         )}
+        
         <div className="mt-8 text-white font-mono">
             {stage === 'closed' && "CLICK TO OPEN LOOTBOX"}
             {stage === 'shaking' && "UNLOCKING..."}
-            {stage === 'revealed' && <button onClick={onClose} className="bg-white text-black px-6 py-2 font-bold rounded mt-4 hover:bg-yellow-400">CLAIM</button>}
+            {stage === 'revealed' && (
+                <button 
+                    onClick={() => { onClaim(reward); onClose(); }} 
+                    className="bg-yellow-500 text-black px-8 py-3 font-black text-xl rounded mt-4 hover:bg-yellow-400 hover:scale-105 transition-all"
+                >
+                    CLAIM REWARD
+                </button>
+            )}
         </div>
       </div>
     </div>
@@ -120,7 +127,7 @@ export default function KaltakquiseDuell() {
       if (initialData) setData(initialData);
       setLoading(false);
 
-      const channel = supabase.channel('duell-v4')
+      const channel = supabase.channel('duell-v5')
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'duell' }, (payload) => {
             setData(payload.new);
         })
@@ -180,15 +187,15 @@ export default function KaltakquiseDuell() {
     });
   };
 
-  const saveBadge = (icon: string) => {
+  // Badge speichern erst beim Claimen
+  const claimBadge = (icon: string) => {
     if (activeLootboxPlayer) {
         updateDB({ [`p${activeLootboxPlayer}_badge`]: icon });
-        setActiveLootboxPlayer(null);
     }
   };
 
   const handleReset = async () => {
-    if (confirm("Kompletten Reset (inkl. Badges)?")) {
+    if (confirm("⚠️ ACHTUNG: Kompletten Reset (inkl. Badges)?")) {
       const resetObj: any = {};
       playerIds.forEach(i => {
         resetObj[`p${i}_calls`] = 0;
@@ -241,7 +248,12 @@ export default function KaltakquiseDuell() {
     <main className="min-h-screen bg-slate-950 text-white p-2 font-sans overflow-x-hidden pb-10">
       
       {godModeData && <GodModeOverlay winnerName={godModeData.name} value={godModeData.val} />}
-      {activeLootboxPlayer && <LootboxModal onOpen={saveBadge} onClose={() => setActiveLootboxPlayer(null)} />}
+      {activeLootboxPlayer && (
+        <LootboxModal 
+            onClaim={claimBadge} 
+            onClose={() => setActiveLootboxPlayer(null)} 
+        />
+      )}
 
       <div className="max-w-[1900px] mx-auto">
         
@@ -272,127 +284,159 @@ export default function KaltakquiseDuell() {
         </div>
 
         {/* PLAYER GRID */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 mt-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 mt-4 px-2">
           {playerIds.map((i) => {
             const name = data[`p${i}_name`];
             const terminWert = data[`p${i}_val`] || 0;
             const streak = data[`p${i}_streak`] || 0;
             const meetings = data[`p${i}_meetings`] || 0;
             const calls = data[`p${i}_calls`] || 0;
+            const deciders = data[`p${i}_deciders`] || 0;
             const badge = data[`p${i}_badge`] || '🥚';
             const goal = data[`p${i}_goal`] || 1;
             
-            // Score
+            // Score Berechnung
             const wpa = goal > 0 ? terminWert / goal : 0;
             let vorschuss = streak * wpa;
             if (vorschuss >= terminWert) vorschuss = terminWert - 1;
             const umsatz = (meetings * terminWert) + vorschuss;
 
+            // --- NEUE KPI BERECHNUNG ---
+            const realValuePerCall = calls > 0 ? (meetings * terminWert) / calls : 0;
+            const deciderQuote = calls > 0 ? (deciders / calls) * 100 : 0;
+            const terminQuote = calls > 0 ? (meetings / calls) * 100 : 0;
+
             // Lootbox verfügbar? (Alle 25 Calls)
             const lootboxAvailable = calls > 0 && calls % 25 === 0;
 
-            // --- PRESSURE (Orange/Rot) ---
-            let borderColor = 'border-slate-800';
-            let shadowColor = '';
+            // --- PRESSURE LOGIK (Gefixed) ---
+            let cardClasses = 'bg-slate-900 border-2 border-slate-800';
+            let shadowClasses = '';
             let pressureText = '';
             
             if (streak > 15 && streak <= 30) {
-                borderColor = 'border-orange-500';
-                shadowColor = 'shadow-[0_0_20px_rgba(249,115,22,0.3)]';
+                cardClasses = 'bg-slate-900 border-2 border-orange-500';
+                shadowClasses = 'shadow-[0_0_20px_rgba(249,115,22,0.3)]';
                 pressureText = '🔥 HEATING UP';
             } else if (streak > 30) {
-                borderColor = 'border-red-600';
-                shadowColor = 'shadow-[0_0_30px_rgba(220,38,38,0.5)] animate-pulse';
+                cardClasses = 'bg-slate-900 border-2 border-red-600 animate-pulse-slow'; // Custom pulse checken oder standard animate-pulse
+                shadowClasses = 'shadow-[0_0_30px_rgba(220,38,38,0.6)]';
                 pressureText = '🚨 CRITICAL';
             }
 
             // --- ICE BUCKET (Einfrieren) ❄️ ---
-            // Wer 0 Anrufe hat, gilt als "kalt/inaktiv" und wird eingefroren (blass + grayscale)
-            // Sobald 1 Anruf getätigt wurde, taut er auf.
             const isFrozen = calls === 0;
 
             const isLeader = currentLeaderId === i;
 
             return (
               <div key={i} className={`
-                relative rounded-xl p-3 flex flex-col transition-all duration-300
-                bg-slate-900 border-2
-                ${isLeader ? 'border-yellow-400 shadow-[0_0_30px_rgba(234,179,8,0.2)] z-10 scale-[1.02]' : borderColor}
-                ${shadowColor}
-                ${isFrozen ? 'opacity-50 grayscale contrast-125' : 'opacity-100'} 
+                relative rounded-xl flex flex-col transition-all duration-300 overflow-hidden min-h-[350px]
+                ${isLeader ? 'bg-slate-900 border-2 border-yellow-400 shadow-[0_0_30px_rgba(234,179,8,0.2)] z-10 scale-[1.02]' : cardClasses}
+                ${shadowClasses}
+                ${isFrozen ? 'opacity-60 grayscale contrast-125' : 'opacity-100'} 
               `}>
                 
-                {/* FROST OVERLAY (Wenn gefroren) */}
+                {/* 1. FROST OVERLAY (Wenn gefroren) */}
                 {isFrozen && !isLeader && (
-                    <div className="absolute inset-0 pointer-events-none z-20 flex items-center justify-center overflow-hidden rounded-xl border border-blue-300/30 shadow-[inset_0_0_20px_rgba(147,197,253,0.3)]">
-                        <div className="bg-blue-900/80 px-2 py-1 rounded text-[10px] text-blue-200 font-bold uppercase tracking-widest backdrop-blur-md">
+                    <div className="absolute inset-0 pointer-events-none z-20 flex items-center justify-center">
+                        <div className="bg-blue-900/90 px-3 py-1 rounded text-xs text-blue-200 font-bold uppercase tracking-widest backdrop-blur-md shadow-xl border border-blue-400/30">
                             ❄️ FROZEN
                         </div>
                     </div>
                 )}
 
-                {/* BADGE (Oben Rechts) */}
-                <div className="absolute top-2 right-2 text-2xl filter drop-shadow-lg z-30" title="Dein Rang">
+                {/* 2. BADGE & PRESSURE */}
+                <div className="absolute top-2 right-2 text-3xl filter drop-shadow-lg z-30 transform hover:scale-125 transition-transform cursor-help" title="Dein Rang">
                     {badge}
                 </div>
 
                 {isLeader && (
-                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-yellow-500 text-black font-black px-3 py-0.5 rounded shadow text-xs z-30">
+                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-yellow-500 text-black font-black px-4 py-1 rounded shadow-lg text-xs z-30 uppercase tracking-wider">
                         👑 MVP
                     </div>
                 )}
                 
                 {pressureText && !isLeader && !isFrozen && (
-                    <div className="absolute top-0 inset-x-0 bg-orange-500 text-black text-[9px] font-black text-center uppercase z-20">{pressureText}</div>
+                    <div className="absolute top-0 inset-x-0 bg-orange-500 text-black text-[10px] font-black text-center uppercase z-20 py-0.5 animate-pulse">{pressureText}</div>
                 )}
 
-                {/* HEADER */}
-                <div className="mt-4 mb-2">
+                {/* 3. NAME & INPUTS */}
+                <div className="mt-5 mb-1 px-3">
                   <input
                     type="text"
                     value={name}
                     onChange={(e) => handleSettingChange(i, "name", e.target.value)}
-                    className={`w-full bg-transparent text-lg font-black text-center uppercase border-none focus:ring-0 outline-none ${isLeader ? 'text-yellow-400' : 'text-slate-200'}`}
+                    className={`w-full bg-transparent text-xl font-black text-center uppercase border-none focus:ring-0 outline-none p-0 ${isLeader ? 'text-yellow-400' : 'text-slate-200'}`}
                     placeholder={`PLAYER ${i}`}
                   />
-                  <div className="flex justify-center gap-2 opacity-30 hover:opacity-100 transition-opacity text-[9px]">
-                       <input type="number" value={terminWert} onChange={(e) => handleSettingChange(i, "val", Number(e.target.value))} className="bg-transparent w-8 text-center text-white"/>
-                       <input type="number" value={goal} onChange={(e) => handleSettingChange(i, "goal", Number(e.target.value))} className="bg-transparent w-6 text-center text-white"/>
+                  {/* Settings Tiny */}
+                  <div className="flex justify-center gap-2 opacity-20 hover:opacity-100 transition-opacity text-[9px] mt-1">
+                       <label>€:</label>
+                       <input type="number" value={terminWert} onChange={(e) => handleSettingChange(i, "val", Number(e.target.value))} className="bg-transparent w-10 text-center text-white border-b border-white/20"/>
+                       <label>Ziel:</label>
+                       <input type="number" value={goal} onChange={(e) => handleSettingChange(i, "goal", Number(e.target.value))} className="bg-transparent w-8 text-center text-white border-b border-white/20"/>
                   </div>
                 </div>
 
-                {/* BIG NUMBER */}
-                <div className="flex-grow flex flex-col items-center justify-center my-1 relative">
-                  <div className={`text-4xl lg:text-5xl font-black tracking-tighter ${isLeader ? 'text-white' : 'text-slate-400'}`}>
-                    {Math.floor(umsatz)}<span className="text-sm text-slate-600">€</span>
+                {/* 4. MAIN SCORE (UMSATZ) */}
+                <div className="flex-grow flex flex-col items-center justify-start py-2 relative">
+                  <div className={`text-5xl lg:text-6xl font-black tracking-tighter leading-none ${isLeader ? 'text-white drop-shadow-lg' : 'text-slate-500'}`}>
+                    {Math.floor(umsatz)}<span className="text-xl text-slate-700 font-medium ml-1">€</span>
                   </div>
-                  {/* XP / PROGRESS ZUR LOOTBOX */}
-                  <div className="w-full h-1 bg-slate-800 mt-2 rounded-full overflow-hidden">
-                      <div className="h-full bg-purple-500" style={{ width: `${(calls % 25) * 4}%` }}></div>
+                  
+                  {/* LOOT PROGRESS */}
+                  <div className="w-2/3 h-1.5 bg-slate-800 mt-3 rounded-full overflow-hidden">
+                      <div className="h-full bg-gradient-to-r from-purple-500 to-pink-500" style={{ width: `${(calls % 25) * 4}%` }}></div>
                   </div>
-                  <div className="text-[8px] text-purple-400 mt-0.5 font-mono">{25 - (calls % 25)} calls to Lootbox</div>
+                  <div className="text-[9px] text-slate-500 mt-1 font-mono uppercase">
+                      {calls > 0 && calls % 25 === 0 ? "BOX READY!" : `${25 - (calls % 25)} calls to Lootbox`}
+                  </div>
+
+                  {/* LOOTBOX BUTTON (Pop-Up) */}
+                  {lootboxAvailable && (
+                    <div className="absolute top-10 z-40 animate-bounce">
+                        <button 
+                            onClick={() => setActiveLootboxPlayer(i)}
+                            className="bg-gradient-to-r from-purple-600 to-pink-600 text-white font-black py-2 px-6 rounded-full text-xs uppercase tracking-widest border-2 border-white/20 shadow-[0_0_20px_rgba(236,72,153,0.5)] hover:scale-110 transition-transform"
+                        >
+                            🎁 OPEN BOX!
+                        </button>
+                    </div>
+                  )}
                 </div>
 
-                {/* LOOTBOX BUTTON (Erscheint nur wenn verfügbar) */}
-                {lootboxAvailable && (
-                    <button 
-                        onClick={() => setActiveLootboxPlayer(i)}
-                        className="mb-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-black py-2 rounded animate-bounce text-xs uppercase tracking-widest border border-white/20 shadow-lg hover:scale-105 transition-transform z-30 relative"
-                    >
-                        🎁 OPEN BOX!
-                    </button>
-                )}
+                {/* 5. DATA GRID (DIE HARD FACTS SIND ZURÜCK) */}
+                <div className="grid grid-cols-3 gap-px bg-slate-800/50 border-y border-white/5 text-center mb-2">
+                    <div className="p-1">
+                        <div className="text-[9px] text-slate-500 uppercase">Real/Call</div>
+                        <div className={`text-xs font-bold ${realValuePerCall > (goal > 0 ? terminWert/goal : 0) ? 'text-green-400' : 'text-slate-300'}`}>
+                            {realValuePerCall.toFixed(2)}€
+                        </div>
+                    </div>
+                    <div className="p-1 border-l border-white/5">
+                        <div className="text-[9px] text-slate-500 uppercase">D-Quote</div>
+                        <div className="text-xs font-bold text-purple-300">{deciderQuote.toFixed(0)}%</div>
+                    </div>
+                    <div className="p-1 border-l border-white/5">
+                        <div className="text-[9px] text-slate-500 uppercase">T-Quote</div>
+                        <div className="text-xs font-bold text-emerald-400">{terminQuote.toFixed(1)}%</div>
+                    </div>
+                </div>
 
-                {/* CONTROLS */}
-                <div className="grid grid-cols-4 gap-1 mt-auto">
-                    <button onClick={() => handleAnwahl(i)} className="col-span-1 bg-slate-800 text-slate-500 hover:bg-slate-700 hover:text-white font-bold py-3 rounded text-xs transition-colors">
-                        ❌
+                {/* 6. ACTION BUTTONS */}
+                <div className="grid grid-cols-4 gap-1 p-2 mt-auto">
+                    <button onClick={() => handleAnwahl(i)} className="col-span-1 bg-slate-800 text-slate-500 hover:bg-slate-700 hover:text-white font-bold py-3 rounded text-xs transition-colors flex flex-col items-center justify-center group">
+                        <span className="text-sm group-hover:scale-125 transition-transform">❌</span>
+                        <span className="text-[8px] mt-0.5">{calls}</span>
                     </button>
-                    <button onClick={() => handleEntscheider(i)} className="col-span-1 bg-slate-800 text-purple-400 hover:bg-purple-900/50 font-bold py-3 rounded text-xs transition-colors">
-                        🗣️
+                    <button onClick={() => handleEntscheider(i)} className="col-span-1 bg-slate-800 text-purple-400 hover:bg-purple-900/50 font-bold py-3 rounded text-xs transition-colors flex flex-col items-center justify-center group">
+                        <span className="text-sm group-hover:scale-125 transition-transform">🗣️</span>
+                        <span className="text-[8px] mt-0.5">{deciders}</span>
                     </button>
-                    <button onClick={() => handleTermin(i)} className="col-span-2 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white font-black italic tracking-wider py-3 rounded shadow-lg active:scale-95 transition-all text-sm z-10">
+                    <button onClick={() => handleTermin(i)} className="col-span-2 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white font-black italic tracking-wider py-3 rounded shadow-lg active:scale-95 transition-all text-sm z-10 border border-white/10 group">
                         TERMIN
+                        <span className="block text-[8px] font-normal not-italic opacity-70 text-emerald-100">{meetings} gebucht</span>
                     </button>
                 </div>
 
@@ -401,9 +445,10 @@ export default function KaltakquiseDuell() {
           })}
         </div>
 
-        <div className="text-center mt-8 opacity-30 hover:opacity-100 transition-opacity">
-            <button onClick={handleReset} className="text-[10px] text-red-500 border border-red-900 px-3 py-1 rounded uppercase tracking-widest">
-                Factory Reset
+        {/* 7. FOOTER RESET */}
+        <div className="text-center py-10 opacity-30 hover:opacity-100 transition-opacity">
+            <button onClick={handleReset} className="text-[10px] text-red-500 border border-red-900/50 hover:bg-red-900/20 px-4 py-2 rounded uppercase tracking-widest transition-all">
+                ☢️ Factory Reset Season
             </button>
         </div>
 
