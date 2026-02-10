@@ -67,7 +67,10 @@ export default function KaltakquiseDuell() {
   const [godModeData, setGodModeData] = useState<{name: string, val: number} | null>(null);
   const [bossTarget, setBossTarget] = useState(10000);
   
-  // 6 Spieler Setup
+  // Timer State
+  const [timeLeft, setTimeLeft] = useState<string>("00:00:00");
+  const [isUrgent, setIsUrgent] = useState(false);
+
   const playerIds = Array.from({ length: 6 }, (_, i) => i + 1);
   const randomEmojis = ['🦁', '🐺', '🦈', '🦖', '🦅', '🦍', '🤡', '🤖', '👽', '💀', '🔥', '🚀', '🐌', '🥚', '👑', '💸', '🧠'];
 
@@ -77,7 +80,7 @@ export default function KaltakquiseDuell() {
       if (initialData) setData(initialData);
       setLoading(false);
 
-      const channel = supabase.channel('duell-v11')
+      const channel = supabase.channel('duell-v12')
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'duell' }, (payload) => {
             setData(payload.new);
         })
@@ -86,6 +89,37 @@ export default function KaltakquiseDuell() {
     };
     loadAndSubscribe();
   }, []);
+
+  // Timer Logic (Doomsday Clock)
+  useEffect(() => {
+      const interval = setInterval(() => {
+          if (!data?.timer_end) {
+              setTimeLeft("SESSION PAUSED");
+              setIsUrgent(false);
+              return;
+          }
+
+          const end = new Date(data.timer_end).getTime();
+          const now = new Date().getTime();
+          const distance = end - now;
+
+          if (distance < 0) {
+              setTimeLeft("TIME IS UP");
+              setIsUrgent(true);
+          } else {
+              const hours = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+              const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
+              const seconds = Math.floor((distance % (1000 * 60)) / 1000);
+              
+              setTimeLeft(`${hours > 0 ? hours + ':' : ''}${minutes < 10 ? '0' : ''}${minutes}:${seconds < 10 ? '0' : ''}${seconds}`);
+              
+              // Urgent wenn unter 5 Minuten (300000ms)
+              setIsUrgent(distance < 300000);
+          }
+      }, 1000);
+
+      return () => clearInterval(interval);
+  }, [data]);
 
   useEffect(() => {
     if (godModeData) {
@@ -150,11 +184,23 @@ export default function KaltakquiseDuell() {
         resetObj[`p${i}_meetings`] = 0;
         resetObj[`p${i}_status`] = '';
       });
+      // Auch Timer stoppen
+      resetObj['timer_end'] = null;
       await updateDB(resetObj);
     }
   };
 
-  // Helper Score Berechnung
+  // --- TIMER CONTROLS ---
+  const startTimer = (minutes: number) => {
+      const endTime = new Date(new Date().getTime() + minutes * 60000).toISOString();
+      updateDB({ timer_end: endTime });
+  };
+
+  const stopTimer = () => {
+      updateDB({ timer_end: null });
+  };
+
+  // --- SCORE LOGIC ---
   const calculateScore = (i: number) => {
       if (!data) return 0;
       const val = data[`p${i}_val`] || 0;
@@ -167,18 +213,38 @@ export default function KaltakquiseDuell() {
       return (meetings * val) + vorschuss;
   };
 
-  // --- NEMESIS LOGIC: Rangliste berechnen ---
-  // Wir erstellen ein Array aller Spieler mit Scores, sortieren es und finden dann den Nachbarn
-  const getAllPlayerScores = () => {
-      return playerIds.map(id => ({
-          id,
-          name: data ? (data[`p${id}_name`] || `PLAYER ${id}`) : `P${id}`,
-          score: calculateScore(id)
-      })).sort((a, b) => b.score - a.score); // Absteigend sortiert
-  };
+  const sortedPlayers = data ? playerIds.map(id => ({
+      id,
+      name: data[`p${id}_name`] || `PLAYER ${id}`,
+      score: calculateScore(id),
+      meetings: data[`p${id}_meetings`] || 0,
+      emoji: data[`p${id}_emoji`] || '👤'
+  })).sort((a, b) => b.score - a.score) : [];
 
-  const sortedPlayers = data ? getAllPlayerScores() : [];
   const leaderId = sortedPlayers.length > 0 ? sortedPlayers[0].id : -1;
+
+  // --- WHATSAPP REPORT ---
+  const copyReport = () => {
+      let report = `🏆 *SALES DUELL REPORT* 🏆\n\n`;
+      let total = 0;
+      
+      sortedPlayers.forEach((p, index) => {
+          let medal = "";
+          if (index === 0) medal = "🥇 👑";
+          else if (index === 1) medal = "🥈";
+          else if (index === 2) medal = "🥉";
+          else if (p.meetings === 0) medal = "💩";
+          else medal = "➖";
+
+          report += `${medal} *${p.name}*: ${Math.floor(p.score)}€ (${p.meetings} Termine)\n`;
+          total += p.score;
+      });
+
+      report += `\n🔥 *TEAM TOTAL: ${Math.floor(total)}€*\n🎯 *ZIEL: ${bossTarget}€*`;
+      
+      navigator.clipboard.writeText(report);
+      alert("✅ Report für WhatsApp kopiert!");
+  };
 
   if (loading || !data) return <div className="h-screen bg-black flex items-center justify-center text-yellow-500 animate-pulse font-mono text-2xl">LADEN...</div>;
 
@@ -186,7 +252,7 @@ export default function KaltakquiseDuell() {
   playerIds.forEach(i => { teamTotal += calculateScore(i); });
   const bossProgress = Math.min((teamTotal / bossTarget) * 100, 100);
   const leaderName = sortedPlayers.length > 0 ? sortedPlayers[0].name : "NIEMAND";
-  const tickerText = `+++ 🚀 MARKET LIVE: TEAM TOTAL: ${Math.floor(teamTotal)}€ +++ 👑 LEADER: ${leaderName} +++ 🎯 TAGESZIEL: ${bossTarget}€ +++ ⚔️ NEMESIS MODE ACTIVE: FIND YOUR RIVAL +++ `;
+  const tickerText = `+++ 🚀 MARKET LIVE: TEAM TOTAL: ${Math.floor(teamTotal)}€ +++ 👑 LEADER: ${leaderName} +++ 🎯 TAGESZIEL: ${bossTarget}€ +++ ⚔️ NEMESIS MODE ACTIVE +++ `;
 
   return (
     <main className="min-h-screen bg-slate-950 text-white p-4 font-sans overflow-x-hidden pb-24">
@@ -196,24 +262,46 @@ export default function KaltakquiseDuell() {
 
       <div className="max-w-[1800px] mx-auto">
         
-        {/* HEADER */}
-        <div className="mb-8 sticky top-0 bg-slate-950/95 backdrop-blur z-40 py-4 border-b border-white/10 shadow-2xl px-4">
-            <div className="flex justify-between items-end mb-3">
-                 <div className="flex items-center gap-4">
+        {/* HEADER & CONTROLS */}
+        <div className="mb-8 sticky top-0 bg-slate-950/95 backdrop-blur z-40 py-4 border-b border-white/10 shadow-2xl px-4 flex flex-col gap-4">
+            
+            {/* TOP ROW: TITLE & TIMER */}
+            <div className="flex justify-between items-start">
+                 <div className="flex flex-col">
                     <h1 className="text-3xl font-black italic tracking-tighter text-white">
                         SALES<span className="text-yellow-500">DUELL</span>
                     </h1>
+                    {/* TIMER CONTROLS (Hidden by default, hover to show) */}
+                    <div className="flex gap-2 mt-2 opacity-20 hover:opacity-100 transition-opacity">
+                        <button onClick={() => startTimer(60)} className="bg-slate-800 px-2 py-1 text-[10px] rounded hover:bg-slate-700">60m</button>
+                        <button onClick={() => startTimer(90)} className="bg-slate-800 px-2 py-1 text-[10px] rounded hover:bg-slate-700">90m</button>
+                        <button onClick={stopTimer} className="bg-red-900/50 text-red-400 px-2 py-1 text-[10px] rounded hover:bg-red-900">STOP</button>
+                    </div>
                  </div>
-                 <div className="flex items-center gap-3 bg-slate-900 px-4 py-2 rounded-lg border border-white/10">
-                    <span className="text-slate-400 text-xs font-bold uppercase tracking-widest">Tagesziel:</span>
-                    <div className="flex items-center">
-                        <input type="number" value={bossTarget} onChange={(e) => setBossTarget(Number(e.target.value))} className="bg-transparent text-right font-black text-xl w-24 text-yellow-500 focus:outline-none border-b border-transparent focus:border-yellow-500" />
-                        <span className="text-yellow-500 font-bold ml-1">€</span>
+
+                 {/* DOOMSDAY CLOCK */}
+                 <div className={`flex flex-col items-center justify-center px-8 py-2 rounded-xl border-2 ${isUrgent ? 'bg-red-950/50 border-red-500 animate-pulse' : 'bg-slate-900 border-slate-700'}`}>
+                    <div className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 mb-1">Session Timer</div>
+                    <div className={`text-4xl font-mono font-black ${isUrgent ? 'text-red-500' : 'text-white'}`}>
+                        {timeLeft}
+                    </div>
+                 </div>
+
+                 {/* RIGHT SIDE: TARGET & REPORT */}
+                 <div className="flex flex-col items-end gap-2">
+                    <button onClick={copyReport} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-4 rounded text-xs uppercase tracking-wider shadow-lg flex items-center gap-2">
+                        📋 Copy Report
+                    </button>
+                    <div className="flex items-center gap-2 bg-slate-900 px-3 py-1 rounded border border-white/10">
+                        <span className="text-slate-400 text-[10px] uppercase font-bold">Ziel:</span>
+                        <input type="number" value={bossTarget} onChange={(e) => setBossTarget(Number(e.target.value))} className="bg-transparent text-right font-bold w-16 text-yellow-500 focus:outline-none" />
+                        <span className="text-yellow-500 font-bold text-sm">€</span>
                     </div>
                  </div>
             </div>
 
-            <div className="h-10 w-full bg-slate-800 rounded-md overflow-hidden relative shadow-inner border border-slate-700">
+            {/* BOSS BAR */}
+            <div className="h-8 w-full bg-slate-800 rounded-md overflow-hidden relative shadow-inner border border-slate-700">
                 <div className="absolute inset-0 bg-red-900/10"></div>
                 <div className={`h-full transition-all duration-700 ease-out relative flex items-center justify-end px-4 ${bossProgress >= 100 ? 'bg-gradient-to-r from-emerald-600 to-green-400' : 'bg-gradient-to-r from-red-600 via-orange-500 to-yellow-400'}`} style={{ width: `${bossProgress}%` }}>
                     <div className="absolute right-0 top-0 bottom-0 w-1 bg-white/50 shadow-[0_0_15px_white]"></div>
@@ -251,20 +339,17 @@ export default function KaltakquiseDuell() {
             let nemesisClass = "text-slate-500";
             
             if (myRankIndex === 0) {
-                // Leader
                 const gap = sortedPlayers.length > 1 ? (umsatz - sortedPlayers[1].score) : 0;
-                nemesisText = `🛡️ VERTEIDIGT FÜHRUNG (+${Math.floor(gap)}€)`;
+                nemesisText = `🛡️ FÜHRUNG: +${Math.floor(gap)}€`;
                 nemesisClass = "text-green-400 bg-green-900/30 border border-green-500/30";
             } else if (myRankIndex > 0) {
-                // Jäger
                 const rival = sortedPlayers[myRankIndex - 1];
                 const gap = rival.score - umsatz;
                 nemesisText = `🎯 JAGT: ${rival.name} (-${Math.floor(gap)}€)`;
                 nemesisClass = "text-red-400 bg-red-900/30 border border-red-500/30 animate-pulse";
             }
 
-
-            // Oracle Logic
+            // Oracle
             const avgCallsNeeded = meetings > 0 ? Math.ceil(calls / meetings) : 50;
             const callsSinceLastHit = streak;
             const callsLeftPrediction = avgCallsNeeded - callsSinceLastHit;
@@ -275,17 +360,13 @@ export default function KaltakquiseDuell() {
             let barColor = "bg-slate-700";
 
             if (meetings === 0) {
-                oracleText = `🏗️ GRIND MODE: ~${callsLeftPrediction} LEFT`;
+                oracleText = `🏗️ GRIND: ~${callsLeftPrediction} LEFT`;
                 oracleColor = "text-slate-400";
                 barColor = "bg-slate-600";
             } else if (callsLeftPrediction <= 0) {
-                oracleText = "🚨 OVERDUE! ANY SECOND NOW...";
+                oracleText = "🚨 OVERDUE!";
                 oracleColor = "text-red-500 animate-pulse";
                 barColor = "bg-red-500";
-            } else if (callsLeftPrediction <= 5) {
-                oracleText = `🔫 LOCK IN! ~${callsLeftPrediction} CALLS LEFT`;
-                oracleColor = "text-yellow-400";
-                barColor = "bg-yellow-500";
             } else {
                 oracleText = `🔨 BUILDING... ~${callsLeftPrediction} TO HIT`;
                 oracleColor = "text-blue-400";
@@ -313,24 +394,14 @@ export default function KaltakquiseDuell() {
                 {isFrozen && !isLeader && (<div className="absolute inset-0 pointer-events-none z-20 flex items-center justify-center"><div className="bg-slate-950/90 border border-slate-700 px-6 py-2 rounded-lg text-sm text-slate-300 font-bold uppercase tracking-widest backdrop-blur-md shadow-2xl">💤 SCHLÄFT</div></div>)}
                 {isLeader && (<div className="absolute top-0 right-0 bg-yellow-500 text-black font-black px-4 py-2 rounded-bl-xl shadow-lg text-sm z-30 uppercase tracking-wider">👑 MVP</div>)}
 
-                {/* HEADER BEREICH */}
                 <div className="mt-6 mb-2 px-4 text-center">
-                  
-                  {/* NEMESIS BADGE (NEU) */}
-                  <div className={`mb-4 inline-block px-3 py-1 rounded text-[10px] font-black uppercase tracking-widest ${nemesisClass}`}>
-                      {nemesisText}
-                  </div>
-
-                  {/* EMOJI & NAME */}
+                  <div className={`mb-4 inline-block px-3 py-1 rounded text-[10px] font-black uppercase tracking-widest ${nemesisClass}`}>{nemesisText}</div>
                   <div className="flex items-center justify-center gap-2 mb-2">
                      <button onClick={() => cycleEmoji(i)} className="text-5xl hover:scale-125 transition-transform">{emoji}</button>
                      <input type="text" value={name} onChange={(e) => handleSettingChange(i, "name", e.target.value)} className={`bg-transparent text-3xl font-black uppercase border-b-2 border-transparent focus:border-white/20 focus:outline-none w-full text-left ${isLeader ? 'text-yellow-400' : 'text-slate-100'}`} placeholder={`PLAYER ${i}`} />
                   </div>
-
-                  {/* TRASH TALK STATUS */}
                   <input type="text" value={status} onChange={(e) => handleSettingChange(i, "status", e.target.value)} className="w-full bg-slate-950/50 text-slate-400 text-sm text-center border-none rounded py-1 px-2 focus:ring-1 focus:ring-yellow-500 mb-3 italic" placeholder='"Status..."' />
                   
-                  {/* ORACLE MOTIVATION BAR */}
                   <div className="mb-4 bg-slate-950 p-2 rounded border border-white/5">
                       <div className={`text-[10px] font-black uppercase tracking-widest mb-1 text-left ${oracleColor}`}>{oracleText}</div>
                       <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden">
@@ -338,28 +409,24 @@ export default function KaltakquiseDuell() {
                       </div>
                   </div>
 
-                  {/* SETTINGS */}
                   <div className="flex justify-center gap-6 mt-2 text-xs font-bold text-slate-400 bg-slate-800/50 py-2 rounded-lg mx-1">
                        <div className="flex flex-col items-center"><span className="text-[9px] uppercase tracking-wider mb-1">€ / Termin</span><input type="number" value={terminWert} onChange={(e) => handleSettingChange(i, "val", Number(e.target.value))} className="bg-transparent w-20 text-center border-b border-white/20 focus:border-yellow-500 outline-none text-white text-lg"/></div>
                        <div className="flex flex-col items-center"><span className="text-[9px] uppercase tracking-wider mb-1">Call Ziel</span><input type="number" value={goal} onChange={(e) => handleSettingChange(i, "goal", Number(e.target.value))} className="bg-transparent w-16 text-center text-white border-b border-white/20 focus:border-yellow-500 outline-none text-lg"/></div>
                   </div>
                 </div>
 
-                {/* UMSATZ */}
                 <div className="flex-grow flex flex-col items-center justify-center py-4 relative">
                   <div className={`text-7xl lg:text-8xl font-black tracking-tighter leading-none transition-all ${isLeader ? 'text-white drop-shadow-[0_0_20px_rgba(255,255,255,0.4)] scale-110' : 'text-slate-500'}`}>
                     {Math.floor(umsatz)}<span className="text-3xl text-slate-700 font-medium ml-1">€</span>
                   </div>
                 </div>
 
-                {/* KPI GRID */}
                 <div className="grid grid-cols-3 gap-px bg-slate-800 border-y border-white/10 text-center mb-6">
                     <div className="py-4 px-1"><div className="text-[10px] text-slate-500 uppercase tracking-wider font-bold">Real/Call</div><div className={`text-base font-bold font-mono ${realValuePerCall > (goal > 0 ? terminWert/goal : 0) ? 'text-green-400' : 'text-slate-300'}`}>{realValuePerCall.toFixed(2)}€</div></div>
                     <div className="py-4 px-1 border-l border-white/10"><div className="text-[10px] text-slate-500 uppercase tracking-wider font-bold">D-Quote</div><div className="text-base font-bold font-mono text-purple-300">{deciderQuote.toFixed(0)}%</div></div>
                     <div className="py-4 px-1 border-l border-white/10"><div className="text-[10px] text-slate-500 uppercase tracking-wider font-bold">T-Quote</div><div className={`text-base font-bold font-mono ${terminQuote > 10 ? 'text-emerald-400' : 'text-slate-400'}`}>{terminQuote.toFixed(1)}%</div></div>
                 </div>
 
-                {/* BUTTONS */}
                 <div className="grid grid-cols-4 gap-3 p-4 mt-auto mb-2">
                     <button onClick={() => handleAnwahl(i)} className="col-span-1 bg-slate-800 hover:bg-slate-700 text-slate-500 hover:text-white font-bold py-5 rounded-lg transition-all flex flex-col items-center justify-center group border border-white/5 active:scale-95"><span className="text-2xl mb-1 group-hover:scale-110 transition-transform">❌</span><span className="text-xs font-mono">{calls}</span></button>
                     <button onClick={() => handleEntscheider(i)} className="col-span-1 bg-slate-800 hover:bg-purple-900/20 text-purple-400 hover:text-purple-300 font-bold py-5 rounded-lg transition-all flex flex-col items-center justify-center group border border-white/5 active:scale-95"><span className="text-2xl mb-1 group-hover:scale-110 transition-transform">🗣️</span><span className="text-xs font-mono">{deciders}</span></button>
@@ -370,7 +437,6 @@ export default function KaltakquiseDuell() {
           })}
         </div>
 
-        {/* RESET */}
         <div className="mt-20 border-t-2 border-red-900/30 pt-10 text-center"><h3 className="text-red-900 font-black uppercase tracking-widest text-xs mb-4">Danger Zone</h3><button onClick={handleReset} className="group relative bg-transparent text-red-600 border-2 border-red-900/50 px-8 py-4 rounded-full uppercase tracking-[0.2em] text-xs font-bold overflow-hidden hover:text-white hover:border-red-600 transition-colors"><div className="absolute inset-0 bg-red-600 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div><span className="relative z-10">💀 SEASON RESET</span></button></div>
       </div>
     </main>
