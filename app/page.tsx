@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
-// --- GOD MODE OVERLAY (Bleibt gleich, weil geil) ---
+// --- GOD MODE OVERLAY ---
 const GodModeOverlay = ({ winnerName, value }: { winnerName: string, value: number }) => (
   <div className="fixed inset-0 z-[9000] bg-black/95 flex flex-col items-center justify-center overflow-hidden">
     <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-yellow-600/30 via-black to-black animate-pulse" />
@@ -41,6 +41,19 @@ const MoneyRain = ({ amount = 50 }) => {
   );
 };
 
+// --- NEWS TICKER ---
+const NewsTicker = ({ text }: { text: string }) => (
+  <div className="fixed bottom-0 left-0 right-0 bg-yellow-500 text-black py-2 z-50 overflow-hidden whitespace-nowrap border-t-4 border-black">
+    <div className="inline-block animate-marquee text-lg font-black uppercase tracking-widest">
+      {text}
+    </div>
+    <style jsx>{`
+      .animate-marquee { animation: marquee 30s linear infinite; }
+      @keyframes marquee { 0% { transform: translateX(100vw); } 100% { transform: translateX(-100%); } }
+    `}</style>
+  </div>
+);
+
 // --- HAUPT APP ---
 
 const supabase = createClient(
@@ -52,11 +65,10 @@ export default function KaltakquiseDuell() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [godModeData, setGodModeData] = useState<{name: string, val: number} | null>(null);
-  
-  // Custom Boss Ziel (Lokaler State, default 10.000)
   const [bossTarget, setBossTarget] = useState(10000);
-
+  
   const playerIds = Array.from({ length: 10 }, (_, i) => i + 1);
+  const randomEmojis = ['🦁', '🐺', '🦈', '🦖', '🦅', '🦍', '🤡', '🤖', '👽', '💀', '🔥', '🚀', '🐌', '🥚', '👑', '💸', '🧠'];
 
   useEffect(() => {
     const loadAndSubscribe = async () => {
@@ -64,7 +76,7 @@ export default function KaltakquiseDuell() {
       if (initialData) setData(initialData);
       setLoading(false);
 
-      const channel = supabase.channel('duell-v7')
+      const channel = supabase.channel('duell-v9')
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'duell' }, (payload) => {
             setData(payload.new);
         })
@@ -74,7 +86,6 @@ export default function KaltakquiseDuell() {
     loadAndSubscribe();
   }, []);
 
-  // Godmode Timer (4s)
   useEffect(() => {
     if (godModeData) {
       const timer = setTimeout(() => setGodModeData(null), 4500);
@@ -91,11 +102,18 @@ export default function KaltakquiseDuell() {
     updateDB({ [`p${playerIdx}_${field}`]: value });
   };
 
+  const cycleEmoji = (i: number) => {
+      const current = data[`p${i}_emoji`] || '👤';
+      const currentIndex = randomEmojis.indexOf(current);
+      const next = randomEmojis[(currentIndex + 1) % randomEmojis.length];
+      handleSettingChange(i, "emoji", next);
+  }
+
   const handleAnwahl = (i: number) => {
     if (!data) return;
     updateDB({
       [`p${i}_calls`]: (data[`p${i}_calls`] || 0) + 1,
-      [`p${i}_streak`]: (data[`p${i}_streak`] || 0) + 1, // Pressure steigt
+      [`p${i}_streak`]: (data[`p${i}_streak`] || 0) + 1, 
     });
   };
 
@@ -112,9 +130,7 @@ export default function KaltakquiseDuell() {
     if (!data) return;
     const terminWert = data[`p${i}_val`] || 0;
     const playerName = data[`p${i}_name`] || `Spieler ${i}`;
-    
     setGodModeData({ name: playerName, val: terminWert });
-    
     updateDB({
       [`p${i}_meetings`]: (data[`p${i}_meetings`] || 0) + 1,
       [`p${i}_deciders`]: (data[`p${i}_deciders`] || 0) + 1,
@@ -131,6 +147,7 @@ export default function KaltakquiseDuell() {
         resetObj[`p${i}_deciders`] = 0;
         resetObj[`p${i}_streak`] = 0;
         resetObj[`p${i}_meetings`] = 0;
+        resetObj[`p${i}_status`] = '';
       });
       await updateDB(resetObj);
     }
@@ -142,11 +159,9 @@ export default function KaltakquiseDuell() {
       const streak = data[`p${i}_streak`] || 0;
       const meetings = data[`p${i}_meetings`] || 0;
       const goal = data[`p${i}_goal`] || 1;
-      
       const wpa = goal > 0 ? val / goal : 0;
       let vorschuss = streak * wpa;
       if (vorschuss >= val) vorschuss = val - 1;
-      
       return (meetings * val) + vorschuss;
   };
 
@@ -164,25 +179,21 @@ export default function KaltakquiseDuell() {
   if (loading || !data) return <div className="h-screen bg-black flex items-center justify-center text-yellow-500 animate-pulse font-mono text-2xl">LADEN...</div>;
 
   const currentLeaderId = getLeaderId();
-
-  // BOSS FIGHT LOGIK
   let teamTotal = 0;
-  playerIds.forEach(i => {
-      teamTotal += calculateScore(i);
-  });
-  
-  // Custom Target Nutzung
-  const currentDamage = teamTotal;
-  const bossProgress = Math.min((currentDamage / bossTarget) * 100, 100);
+  playerIds.forEach(i => { teamTotal += calculateScore(i); });
+  const bossProgress = Math.min((teamTotal / bossTarget) * 100, 100);
+  const leaderName = currentLeaderId > -1 ? (data[`p${currentLeaderId}_name`] || `PLAYER ${currentLeaderId}`) : "NIEMAND";
+  const tickerText = `+++ 🚀 MARKET LIVE: TEAM TOTAL: ${Math.floor(teamTotal)}€ +++ 👑 LEADER: ${leaderName} +++ 🎯 TAGESZIEL: ${bossTarget}€ +++ 🐺 "THE WOLF" MODE ACTIVE +++ HUNT OR BE HUNTED +++ `;
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white p-4 font-sans overflow-x-hidden pb-20">
+    <main className="min-h-screen bg-slate-950 text-white p-4 font-sans overflow-x-hidden pb-24">
       
       {godModeData && <GodModeOverlay winnerName={godModeData.name} value={godModeData.val} />}
+      <NewsTicker text={tickerText} />
 
       <div className="max-w-[2200px] mx-auto">
         
-        {/* HEADER & BOSS BAR */}
+        {/* HEADER */}
         <div className="mb-8 sticky top-0 bg-slate-950/95 backdrop-blur z-40 py-4 border-b border-white/10 shadow-2xl px-4">
             <div className="flex justify-between items-end mb-3">
                  <div className="flex items-center gap-4">
@@ -190,48 +201,35 @@ export default function KaltakquiseDuell() {
                         SALES<span className="text-yellow-500">DUELL</span>
                     </h1>
                  </div>
-                 
-                 {/* ZIEL EINGABE */}
                  <div className="flex items-center gap-3 bg-slate-900 px-4 py-2 rounded-lg border border-white/10">
                     <span className="text-slate-400 text-xs font-bold uppercase tracking-widest">Tagesziel:</span>
                     <div className="flex items-center">
-                        <input 
-                            type="number" 
-                            value={bossTarget} 
-                            onChange={(e) => setBossTarget(Number(e.target.value))}
-                            className="bg-transparent text-right font-black text-xl w-24 text-yellow-500 focus:outline-none border-b border-transparent focus:border-yellow-500"
-                        />
+                        <input type="number" value={bossTarget} onChange={(e) => setBossTarget(Number(e.target.value))} className="bg-transparent text-right font-black text-xl w-24 text-yellow-500 focus:outline-none border-b border-transparent focus:border-yellow-500" />
                         <span className="text-yellow-500 font-bold ml-1">€</span>
                     </div>
                  </div>
             </div>
 
-            {/* PROGRESS BAR */}
             <div className="h-10 w-full bg-slate-800 rounded-md overflow-hidden relative shadow-inner border border-slate-700">
                 <div className="absolute inset-0 bg-red-900/10"></div>
-                <div 
-                    className={`h-full transition-all duration-700 ease-out relative flex items-center justify-end px-4 ${bossProgress >= 100 ? 'bg-gradient-to-r from-emerald-600 to-green-400' : 'bg-gradient-to-r from-red-600 via-orange-500 to-yellow-400'}`}
-                    style={{ width: `${bossProgress}%` }}
-                >
+                <div className={`h-full transition-all duration-700 ease-out relative flex items-center justify-end px-4 ${bossProgress >= 100 ? 'bg-gradient-to-r from-emerald-600 to-green-400' : 'bg-gradient-to-r from-red-600 via-orange-500 to-yellow-400'}`} style={{ width: `${bossProgress}%` }}>
                     <div className="absolute right-0 top-0 bottom-0 w-1 bg-white/50 shadow-[0_0_15px_white]"></div>
                 </div>
-                
-                {/* TEXT IM BALKEN */}
                 <div className="absolute inset-0 flex items-center justify-between px-6 pointer-events-none">
                     <span className="text-xs font-black tracking-[0.2em] text-white mix-blend-overlay uppercase">
                         {bossProgress >= 100 ? '✅ ZIEL ERREICHT' : 'MISSION PROGRESS'}
                     </span>
-                    <span className="font-mono font-bold text-white text-lg drop-shadow-md">
-                        {Math.floor(currentDamage)}€ / {bossTarget}€
-                    </span>
+                    <span className="font-mono font-bold text-white text-lg drop-shadow-md">{Math.floor(teamTotal)}€ / {bossTarget}€</span>
                 </div>
             </div>
         </div>
 
-        {/* PLAYER GRID - Größere Kacheln */}
+        {/* GRID */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 mt-6">
           {playerIds.map((i) => {
             const name = data[`p${i}_name`];
+            const emoji = data[`p${i}_emoji`] || '👤';
+            const status = data[`p${i}_status`] || '';
             const terminWert = data[`p${i}_val`] || 0;
             const streak = data[`p${i}_streak`] || 0;
             const meetings = data[`p${i}_meetings`] || 0;
@@ -240,153 +238,115 @@ export default function KaltakquiseDuell() {
             const goal = data[`p${i}_goal`] || 1;
             
             const umsatz = calculateScore(i);
-
-            // KPIs
             const realValuePerCall = calls > 0 ? (meetings * terminWert) / calls : 0;
             const deciderQuote = calls > 0 ? (deciders / calls) * 100 : 0;
             const terminQuote = deciders > 0 ? (meetings / deciders) * 100 : 0;
 
-            // Pressure (Gefixed mit hard Rings)
+            // --- ORACLE LOGIC (Die Motivation) ---
+            // Berechne Schnitt: Calls pro Termin
+            // Falls 0 Termine, nehme Default von 50 als Ziel
+            const avgCallsNeeded = meetings > 0 ? Math.ceil(calls / meetings) : 50;
+            const callsSinceLastHit = streak;
+            const callsLeftPrediction = avgCallsNeeded - callsSinceLastHit;
+            const progressToNextHit = Math.min((callsSinceLastHit / avgCallsNeeded) * 100, 100);
+            
+            let oracleText = "CALCULATING...";
+            let oracleColor = "text-slate-500";
+            let barColor = "bg-slate-700";
+
+            if (meetings === 0) {
+                oracleText = `🏗️ GRIND MODE: ~${callsLeftPrediction} LEFT`;
+                oracleColor = "text-slate-400";
+                barColor = "bg-slate-600";
+            } else if (callsLeftPrediction <= 0) {
+                oracleText = "🚨 OVERDUE! ANY SECOND NOW...";
+                oracleColor = "text-red-500 animate-pulse";
+                barColor = "bg-red-500";
+            } else if (callsLeftPrediction <= 5) {
+                oracleText = `🔫 LOCK IN! ~${callsLeftPrediction} CALLS LEFT`;
+                oracleColor = "text-yellow-400";
+                barColor = "bg-yellow-500";
+            } else {
+                oracleText = `🔨 BUILDING... ~${callsLeftPrediction} TO HIT`;
+                oracleColor = "text-blue-400";
+                barColor = "bg-blue-500";
+            }
+
+            // Styles
             let cardClasses = 'bg-slate-900 border border-slate-800';
             let shadowClasses = '';
-            let pressureText = '';
             
             if (streak > 15 && streak <= 30) {
                 cardClasses = 'bg-slate-900 border-none ring-4 ring-orange-500';
                 shadowClasses = 'shadow-[0_0_30px_rgba(249,115,22,0.4)]';
-                pressureText = '🔥 HEATING UP';
-            } 
-            else if (streak > 30) {
+            } else if (streak > 30) {
                 cardClasses = 'bg-slate-900 border-none ring-4 ring-red-600 animate-pulse'; 
                 shadowClasses = 'shadow-[0_0_50px_rgba(220,38,38,0.7)]';
-                pressureText = '🚨 CRITICAL PRESSURE';
             }
 
             const isFrozen = calls === 0;
             const isLeader = currentLeaderId === i;
 
             return (
-              <div key={i} className={`
-                relative rounded-2xl flex flex-col transition-all duration-300 overflow-hidden min-h-[420px]
-                ${isLeader ? 'bg-slate-900 ring-4 ring-yellow-400 shadow-[0_0_50px_rgba(234,179,8,0.3)] z-10 scale-[1.03]' : cardClasses}
-                ${shadowClasses}
-                ${isFrozen ? 'opacity-50 grayscale contrast-125' : 'opacity-100'} 
-              `}>
+              <div key={i} className={`relative rounded-2xl flex flex-col transition-all duration-300 overflow-hidden min-h-[500px] ${isLeader ? 'bg-slate-900 ring-4 ring-yellow-400 shadow-[0_0_50px_rgba(234,179,8,0.3)] z-10 scale-[1.03]' : cardClasses} ${shadowClasses} ${isFrozen ? 'opacity-50 grayscale contrast-125' : 'opacity-100'} `}>
                 
-                {/* INACTIVE OVERLAY */}
-                {isFrozen && !isLeader && (
-                    <div className="absolute inset-0 pointer-events-none z-20 flex items-center justify-center">
-                        <div className="bg-slate-950/90 border border-slate-700 px-6 py-2 rounded-lg text-sm text-slate-300 font-bold uppercase tracking-widest backdrop-blur-md shadow-2xl">
-                            💤 SCHLÄFT
-                        </div>
-                    </div>
-                )}
+                {isFrozen && !isLeader && (<div className="absolute inset-0 pointer-events-none z-20 flex items-center justify-center"><div className="bg-slate-950/90 border border-slate-700 px-6 py-2 rounded-lg text-sm text-slate-300 font-bold uppercase tracking-widest backdrop-blur-md shadow-2xl">💤 SCHLÄFT</div></div>)}
+                {isLeader && (<div className="absolute top-0 right-0 bg-yellow-500 text-black font-black px-4 py-2 rounded-bl-xl shadow-lg text-sm z-30 uppercase tracking-wider">👑 MVP</div>)}
 
-                {isLeader && (
-                    <div className="absolute top-0 right-0 bg-yellow-500 text-black font-black px-4 py-2 rounded-bl-xl shadow-lg text-sm z-30 uppercase tracking-wider">
-                        👑 MVP
-                    </div>
-                )}
-                
-                {pressureText && !isLeader && !isFrozen && (
-                    <div className="absolute top-0 inset-x-0 bg-gradient-to-r from-orange-600 to-red-600 text-white text-xs font-black text-center uppercase z-20 py-1.5 tracking-widest">{pressureText}</div>
-                )}
-
-                {/* NAME AREA */}
-                <div className="mt-8 mb-4 px-4 text-center">
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={(e) => handleSettingChange(i, "name", e.target.value)}
-                    className={`w-full bg-transparent text-2xl font-black text-center uppercase border-b-2 border-transparent focus:border-white/20 focus:outline-none p-1 ${isLeader ? 'text-yellow-400' : 'text-slate-100'}`}
-                    placeholder={`PLAYER ${i}`}
-                  />
+                {/* HEADER BEREICH */}
+                <div className="mt-6 mb-2 px-4 text-center">
                   
-                  {/* SETTINGS (Jetzt groß und sichtbar) */}
-                  <div className="flex justify-center gap-6 mt-3 text-xs font-bold text-slate-400 bg-slate-800/50 py-2 rounded-lg mx-2">
-                       <div className="flex flex-col items-center">
-                         <span className="text-[10px] uppercase tracking-wider mb-1">Wert/Termin</span>
-                         <div className="flex items-center text-white">
-                            <input type="number" value={terminWert} onChange={(e) => handleSettingChange(i, "val", Number(e.target.value))} className="bg-transparent w-16 text-center border-b border-white/20 focus:border-yellow-500 outline-none"/>
-                            <span>€</span>
-                         </div>
-                       </div>
-                       <div className="flex flex-col items-center">
-                         <span className="text-[10px] uppercase tracking-wider mb-1">Call Ziel</span>
-                         <input type="number" value={goal} onChange={(e) => handleSettingChange(i, "goal", Number(e.target.value))} className="bg-transparent w-12 text-center text-white border-b border-white/20 focus:border-yellow-500 outline-none"/>
-                       </div>
+                  {/* EMOJI & NAME */}
+                  <div className="flex items-center justify-center gap-2 mb-2">
+                     <button onClick={() => cycleEmoji(i)} className="text-4xl hover:scale-125 transition-transform">{emoji}</button>
+                     <input type="text" value={name} onChange={(e) => handleSettingChange(i, "name", e.target.value)} className={`bg-transparent text-2xl font-black uppercase border-b-2 border-transparent focus:border-white/20 focus:outline-none w-full text-left ${isLeader ? 'text-yellow-400' : 'text-slate-100'}`} placeholder={`PLAYER ${i}`} />
+                  </div>
+
+                  {/* TRASH TALK STATUS */}
+                  <input type="text" value={status} onChange={(e) => handleSettingChange(i, "status", e.target.value)} className="w-full bg-slate-950/50 text-slate-400 text-xs text-center border-none rounded py-1 px-2 focus:ring-1 focus:ring-yellow-500 mb-3 italic" placeholder='"Status..."' />
+                  
+                  {/* ORACLE MOTIVATION BAR */}
+                  <div className="mb-4 bg-slate-950 p-2 rounded border border-white/5">
+                      <div className={`text-[9px] font-black uppercase tracking-widest mb-1 text-left ${oracleColor}`}>{oracleText}</div>
+                      <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+                          <div className={`h-full transition-all duration-500 ${barColor}`} style={{ width: `${progressToNextHit}%` }}></div>
+                      </div>
+                  </div>
+
+                  {/* SETTINGS */}
+                  <div className="flex justify-center gap-6 mt-1 text-xs font-bold text-slate-400 bg-slate-800/50 py-2 rounded-lg mx-1">
+                       <div className="flex flex-col items-center"><span className="text-[9px] uppercase tracking-wider mb-1">€ / Termin</span><input type="number" value={terminWert} onChange={(e) => handleSettingChange(i, "val", Number(e.target.value))} className="bg-transparent w-16 text-center border-b border-white/20 focus:border-yellow-500 outline-none text-white"/></div>
+                       <div className="flex flex-col items-center"><span className="text-[9px] uppercase tracking-wider mb-1">Call Ziel</span><input type="number" value={goal} onChange={(e) => handleSettingChange(i, "goal", Number(e.target.value))} className="bg-transparent w-12 text-center text-white border-b border-white/20 focus:border-yellow-500 outline-none"/></div>
                   </div>
                 </div>
 
-                {/* MAIN SCORE (UMSATZ) */}
-                <div className="flex-grow flex flex-col items-center justify-center py-4 relative">
+                {/* UMSATZ */}
+                <div className="flex-grow flex flex-col items-center justify-center py-2 relative">
                   <div className={`text-6xl lg:text-7xl font-black tracking-tighter leading-none transition-all ${isLeader ? 'text-white drop-shadow-[0_0_20px_rgba(255,255,255,0.4)] scale-110' : 'text-slate-500'}`}>
                     {Math.floor(umsatz)}<span className="text-2xl text-slate-700 font-medium ml-1">€</span>
                   </div>
-                  
-                  {streak > 0 && (
-                      <div className={`text-sm font-mono mt-3 font-bold uppercase tracking-wider py-1 px-3 rounded ${streak > 15 ? 'bg-orange-900/30 text-orange-400' : 'bg-slate-800 text-slate-500'}`}>
-                          Streak: {streak}
-                      </div>
-                  )}
                 </div>
 
-                {/* KPI GRID (Größer & Fetter) */}
+                {/* KPI GRID */}
                 <div className="grid grid-cols-3 gap-px bg-slate-800 border-y border-white/10 text-center mb-4">
-                    <div className="py-3 px-1">
-                        <div className="text-[10px] text-slate-500 uppercase tracking-wider font-bold mb-0.5">Real/Call</div>
-                        <div className={`text-sm font-bold font-mono ${realValuePerCall > (goal > 0 ? terminWert/goal : 0) ? 'text-green-400' : 'text-slate-300'}`}>
-                            {realValuePerCall.toFixed(2)}€
-                        </div>
-                    </div>
-                    <div className="py-3 px-1 border-l border-white/10">
-                        <div className="text-[10px] text-slate-500 uppercase tracking-wider font-bold mb-0.5">D-Quote</div>
-                        <div className="text-sm font-bold font-mono text-purple-300">{deciderQuote.toFixed(0)}%</div>
-                    </div>
-                    <div className="py-3 px-1 border-l border-white/10">
-                        <div className="text-[10px] text-slate-500 uppercase tracking-wider font-bold mb-0.5">T-Quote</div>
-                        <div className={`text-sm font-bold font-mono ${terminQuote > 10 ? 'text-emerald-400' : 'text-slate-400'}`}>
-                            {terminQuote.toFixed(1)}%
-                        </div>
-                    </div>
+                    <div className="py-3 px-1"><div className="text-[9px] text-slate-500 uppercase tracking-wider font-bold">Real/Call</div><div className={`text-sm font-bold font-mono ${realValuePerCall > (goal > 0 ? terminWert/goal : 0) ? 'text-green-400' : 'text-slate-300'}`}>{realValuePerCall.toFixed(2)}€</div></div>
+                    <div className="py-3 px-1 border-l border-white/10"><div className="text-[9px] text-slate-500 uppercase tracking-wider font-bold">D-Quote</div><div className="text-sm font-bold font-mono text-purple-300">{deciderQuote.toFixed(0)}%</div></div>
+                    <div className="py-3 px-1 border-l border-white/10"><div className="text-[9px] text-slate-500 uppercase tracking-wider font-bold">T-Quote</div><div className={`text-sm font-bold font-mono ${terminQuote > 10 ? 'text-emerald-400' : 'text-slate-400'}`}>{terminQuote.toFixed(1)}%</div></div>
                 </div>
 
-                {/* ACTION BUTTONS (Massiver) */}
-                <div className="grid grid-cols-4 gap-2 p-3 mt-auto">
-                    <button onClick={() => handleAnwahl(i)} className="col-span-1 bg-slate-800 hover:bg-slate-700 text-slate-500 hover:text-white font-bold py-4 rounded-lg transition-all flex flex-col items-center justify-center group border border-white/5 active:scale-95">
-                        <span className="text-xl mb-1 group-hover:scale-110 transition-transform">❌</span>
-                        <span className="text-[10px] font-mono">{calls}</span>
-                    </button>
-                    <button onClick={() => handleEntscheider(i)} className="col-span-1 bg-slate-800 hover:bg-purple-900/20 text-purple-400 hover:text-purple-300 font-bold py-4 rounded-lg transition-all flex flex-col items-center justify-center group border border-white/5 active:scale-95">
-                        <span className="text-xl mb-1 group-hover:scale-110 transition-transform">🗣️</span>
-                        <span className="text-[10px] font-mono">{deciders}</span>
-                    </button>
-                    <button onClick={() => handleTermin(i)} className="col-span-2 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white font-black italic tracking-wider py-4 rounded-lg shadow-lg active:scale-95 transition-all text-lg z-10 border border-emerald-500/30 group relative overflow-hidden">
-                        <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
-                        <span className="relative z-10">TERMIN</span>
-                        <span className="block text-[9px] font-normal not-italic opacity-80 text-emerald-100 font-mono mt-0.5 relative z-10">{meetings} BKD</span>
-                    </button>
+                {/* BUTTONS */}
+                <div className="grid grid-cols-4 gap-2 p-3 mt-auto mb-2">
+                    <button onClick={() => handleAnwahl(i)} className="col-span-1 bg-slate-800 hover:bg-slate-700 text-slate-500 hover:text-white font-bold py-4 rounded-lg transition-all flex flex-col items-center justify-center group border border-white/5 active:scale-95"><span className="text-xl mb-1 group-hover:scale-110 transition-transform">❌</span><span className="text-[10px] font-mono">{calls}</span></button>
+                    <button onClick={() => handleEntscheider(i)} className="col-span-1 bg-slate-800 hover:bg-purple-900/20 text-purple-400 hover:text-purple-300 font-bold py-4 rounded-lg transition-all flex flex-col items-center justify-center group border border-white/5 active:scale-95"><span className="text-xl mb-1 group-hover:scale-110 transition-transform">🗣️</span><span className="text-[10px] font-mono">{deciders}</span></button>
+                    <button onClick={() => handleTermin(i)} className="col-span-2 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white font-black italic tracking-wider py-4 rounded-lg shadow-lg active:scale-95 transition-all text-lg z-10 border border-emerald-500/30 group relative overflow-hidden"><div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div><span className="relative z-10">TERMIN</span><span className="block text-[9px] font-normal not-italic opacity-80 text-emerald-100 font-mono mt-0.5 relative z-10">{meetings} BKD</span></button>
                 </div>
-
               </div>
             );
           })}
         </div>
 
-        {/* DANGER ZONE RESET BUTTON */}
-        <div className="mt-20 border-t-2 border-red-900/30 pt-10 pb-20 text-center">
-            <h3 className="text-red-900 font-black uppercase tracking-widest text-xs mb-4">Danger Zone</h3>
-            <button 
-                onClick={handleReset} 
-                className="group relative bg-transparent text-red-600 border-2 border-red-900/50 px-8 py-4 rounded-full uppercase tracking-[0.2em] text-xs font-bold overflow-hidden hover:text-white hover:border-red-600 transition-colors"
-            >
-                <div className="absolute inset-0 bg-red-600 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
-                <span className="relative z-10 flex items-center gap-2">
-                    💀 SEASON RESET (ALLES LÖSCHEN)
-                </span>
-            </button>
-        </div>
-
+        {/* RESET */}
+        <div className="mt-20 border-t-2 border-red-900/30 pt-10 text-center"><h3 className="text-red-900 font-black uppercase tracking-widest text-xs mb-4">Danger Zone</h3><button onClick={handleReset} className="group relative bg-transparent text-red-600 border-2 border-red-900/50 px-8 py-4 rounded-full uppercase tracking-[0.2em] text-xs font-bold overflow-hidden hover:text-white hover:border-red-600 transition-colors"><div className="absolute inset-0 bg-red-600 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div><span className="relative z-10">💀 SEASON RESET</span></button></div>
       </div>
     </main>
   );
