@@ -59,7 +59,7 @@ export default function KaltakquiseDuell() {
   const [customDuration, setCustomDuration] = useState<number>(60);
   const [isPaused, setIsPaused] = useState(false);
   const [endTimeDisplay, setEndTimeDisplay] = useState<string>("");
-  const [channel, setChannel] = useState<any>(null); // FIX: Channel State
+  const [channel, setChannel] = useState<any>(null); 
 
   const playerIds = Array.from({ length: 6 }, (_, i) => i + 1);
   const randomEmojis = ['🦁','🐺','🦍','🤡','🤖','👽','💀','🔥','🚀','🐌','👑','💸','🧠'];
@@ -70,7 +70,6 @@ export default function KaltakquiseDuell() {
       if (d) setData(d);
       setLoading(false);
 
-      // FIX: Channel speichern
       const ch = supabase.channel('duell-master')
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'duell' }, p => setData(p.new))
         .on('broadcast', { event: 'god_mode' }, p => { 
@@ -130,6 +129,7 @@ export default function KaltakquiseDuell() {
       handleSettingChange(i, "emoji", next);
   }
 
+  // --- DIE WICHTIGSTE FUNKTION: ACTION HANDLING + LOGGING ---
   const handleAction = async (i: number, type: 'calls' | 'deciders' | 'meetings', delta: number) => {
       if (!data) return;
       if (delta < 0 && (data[`p${i}_${type}`] || 0) <= 0) return;
@@ -139,35 +139,34 @@ export default function KaltakquiseDuell() {
       const updates: any = {};
       updates[`p${i}_${type}`] = (data[`p${i}_${type}`] || 0) + delta;
       
-      // LOGIC FIX: Multi-Logging für saubere Stats
       const eventsToLog = [];
       const playerName = data[`p${i}_name`] || `Player ${i}`;
+      const terminWert = data[`p${i}_val`] || 0; // Hier holen wir den Umsatz-Wert
 
       if (type === 'meetings' && delta > 0) {
           updates[`p${i}_streak`] = 0;
           updates[`p${i}_deciders`] = (data[`p${i}_deciders`]||0) + 1;
           updates[`p${i}_calls`] = (data[`p${i}_calls`]||0) + 1;
-          const val = data[`p${i}_val`] || 0;
           
-          setGodModeData({ name: playerName, val });
-          // FIX: Benutze gespeicherten Channel für Broadcast
-          channel?.send({ type: 'broadcast', event: 'god_mode', payload: { name: playerName, val } });
+          setGodModeData({ name: playerName, val: terminWert });
+          channel?.send({ type: 'broadcast', event: 'god_mode', payload: { name: playerName, val: terminWert } });
           
-          eventsToLog.push({ player_id: i, player_name: playerName, event_type: 'calls' });
-          eventsToLog.push({ player_id: i, player_name: playerName, event_type: 'deciders' });
-          eventsToLog.push({ player_id: i, player_name: playerName, event_type: 'meetings' });
+          // LOG: Meeting MIT WERT, Rest ohne
+          eventsToLog.push({ player_id: i, player_name: playerName, event_type: 'calls', event_value: 0 });
+          eventsToLog.push({ player_id: i, player_name: playerName, event_type: 'deciders', event_value: 0 });
+          eventsToLog.push({ player_id: i, player_name: playerName, event_type: 'meetings', event_value: terminWert });
 
       } else if (type === 'deciders') {
           updates[`p${i}_calls`] = (data[`p${i}_calls`]||0) + delta;
           if (delta > 0) {
               updates[`p${i}_streak`] = (data[`p${i}_streak`]||0) + 1;
-              eventsToLog.push({ player_id: i, player_name: playerName, event_type: 'calls' });
-              eventsToLog.push({ player_id: i, player_name: playerName, event_type: 'deciders' });
+              eventsToLog.push({ player_id: i, player_name: playerName, event_type: 'calls', event_value: 0 });
+              eventsToLog.push({ player_id: i, player_name: playerName, event_type: 'deciders', event_value: 0 });
           }
       } else if (type === 'calls') {
           if (delta > 0) {
               updates[`p${i}_streak`] = (data[`p${i}_streak`]||0) + 1;
-              eventsToLog.push({ player_id: i, player_name: playerName, event_type: 'calls' });
+              eventsToLog.push({ player_id: i, player_name: playerName, event_type: 'calls', event_value: 0 });
           }
       }
       
