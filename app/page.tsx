@@ -129,7 +129,6 @@ export default function KaltakquiseDuell() {
       handleSettingChange(i, "emoji", next);
   }
 
-  // --- DIE WICHTIGSTE FUNKTION: ACTION HANDLING + LOGGING ---
   const handleAction = async (i: number, type: 'calls' | 'deciders' | 'meetings', delta: number) => {
       if (!data) return;
       if (delta < 0 && (data[`p${i}_${type}`] || 0) <= 0) return;
@@ -141,7 +140,7 @@ export default function KaltakquiseDuell() {
       
       const eventsToLog = [];
       const playerName = data[`p${i}_name`] || `Player ${i}`;
-      const terminWert = data[`p${i}_val`] || 0; // Hier holen wir den Umsatz-Wert
+      const terminWert = data[`p${i}_val`] || 0; 
 
       if (type === 'meetings' && delta > 0) {
           updates[`p${i}_streak`] = 0;
@@ -151,7 +150,6 @@ export default function KaltakquiseDuell() {
           setGodModeData({ name: playerName, val: terminWert });
           channel?.send({ type: 'broadcast', event: 'god_mode', payload: { name: playerName, val: terminWert } });
           
-          // LOG: Meeting MIT WERT, Rest ohne
           eventsToLog.push({ player_id: i, player_name: playerName, event_type: 'calls', event_value: 0 });
           eventsToLog.push({ player_id: i, player_name: playerName, event_type: 'deciders', event_value: 0 });
           eventsToLog.push({ player_id: i, player_name: playerName, event_type: 'meetings', event_value: terminWert });
@@ -234,11 +232,15 @@ export default function KaltakquiseDuell() {
           {playerIds.map((i) => {
             const streak = data[`p${i}_streak`] || 0;
             const calls = data[`p${i}_calls`] || 0;
+            const deciders = data[`p${i}_deciders`] || 0;
             const meetings = data[`p${i}_meetings`] || 0;
             const isFrozen = calls === 0;
             const isLeader = leaderId === i;
             const umsatz = calculateScore(i);
             const rpc = calls > 0 ? (meetings * (data[`p${i}_val`]||0)) / calls : 0;
+            
+            // HIER IST DAS NEUE: T-Quote statt Streak
+            const terminQuote = deciders > 0 ? (meetings / deciders) * 100 : 0;
 
             return (
               <div key={i} className={`relative rounded-2xl flex flex-col overflow-hidden min-h-[500px] transition-all ${isLeader ? 'bg-slate-900 ring-4 ring-yellow-400 scale-[1.02]' : streak > 15 ? 'bg-slate-900 ring-2 ring-orange-500' : 'bg-slate-900 border border-slate-800'} ${isFrozen ? 'opacity-50 grayscale' : 'opacity-100'}`}>
@@ -257,11 +259,14 @@ export default function KaltakquiseDuell() {
                 <div className="flex-grow flex flex-col items-center justify-center py-4 relative">
                   <div className={`text-7xl lg:text-8xl font-black tracking-tighter leading-none ${isLeader ? 'text-white drop-shadow-lg' : 'text-slate-500'}`}>{Math.floor(umsatz)}<span className="text-3xl text-slate-700 ml-1">€</span></div>
                 </div>
+                
+                {/* METRICS GRID - JETZT MIT T-QUOTE */}
                 <div className="grid grid-cols-3 gap-px bg-slate-800 border-y border-white/10 text-center mb-6">
                     <div className="py-4 px-1"><div className="text-[10px] text-slate-500 font-bold">Real/Call</div><div className={`text-base font-bold font-mono ${rpc > 0 ? 'text-green-400' : 'text-slate-300'}`}>{rpc.toFixed(2)}€</div></div>
                     <div className="py-4 px-1 border-l border-white/10"><div className="text-[10px] text-slate-500 font-bold">D-Quote</div><div className="text-base font-bold font-mono text-purple-300">{calls>0?((data[`p${i}_deciders`]||0)/calls*100).toFixed(0):0}%</div></div>
-                    <div className="py-4 px-1 border-l border-white/10"><div className="text-[10px] text-slate-500 font-bold">Streak</div><div className="text-base font-bold font-mono text-orange-400">{streak}</div></div>
+                    <div className="py-4 px-1 border-l border-white/10"><div className="text-[10px] text-slate-500 font-bold">T-Quote</div><div className={`text-base font-bold font-mono ${terminQuote > 10 ? 'text-emerald-400' : 'text-orange-400'}`}>{terminQuote.toFixed(0)}%</div></div>
                 </div>
+
                 <div className="grid grid-cols-4 gap-3 p-4 mt-auto mb-2">
                     <div className="col-span-1 relative group">
                         <button onClick={() => handleAction(i, 'calls', 1)} className="w-full h-full bg-slate-800 hover:bg-slate-700 text-slate-500 hover:text-white font-bold py-5 rounded-lg transition-all flex flex-col items-center justify-center border border-white/5 active:scale-95"><span className="text-2xl mb-1">❌</span><span className="text-xs font-mono">{calls}</span></button>
